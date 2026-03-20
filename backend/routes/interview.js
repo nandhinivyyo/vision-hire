@@ -9,7 +9,7 @@ const { generateInterviewQuestions, evaluateAnswer, generateInterviewReport, gen
 // POST /api/interview/start
 router.post('/start', protect, async (req, res) => {
   try {
-    const { type, difficulty, mode = 'practice', sessionId, useResume = true } = req.body;
+    const { type, topic, difficulty, persona = 'friendly', language = 'en-US', mode = 'practice', sessionId, useResume = true } = req.body;
 
     // If this is a session interview, enforce schedule window + lock criteria to session
     let session = null;
@@ -54,10 +54,13 @@ router.post('/start', protect, async (req, res) => {
 
     const questions = await generateInterviewQuestions({
       type: lockedType,
+      topic,
       difficulty: lockedDifficulty,
+      persona,
       resumeData,
       count: 10,
-      sessionSeed
+      sessionSeed,
+      language
     });
 
     const interview = await Interview.create({
@@ -65,7 +68,10 @@ router.post('/start', protect, async (req, res) => {
       session: sessionId || null,
       mode,
       type: lockedType,
+      topic: lockedType === 'topic' ? topic : null,
       difficulty: lockedDifficulty,
+      persona,
+      language,
       status: 'in_progress',
       allowedDurationSeconds,
       resumeUsed: hasResume,
@@ -108,7 +114,7 @@ router.post('/:id/answer', protect, async (req, res) => {
       ? `Skills: ${interview.resumeSkills.slice(0, 5).join(', ')}`
       : '';
 
-    const evaluation = await evaluateAnswer(question.question, answer, resumeContext);
+    const evaluation = await evaluateAnswer(question.question, answer, resumeContext, interview.persona, interview.language);
 
     interview.questions[questionIndex].answer       = answer;
     interview.questions[questionIndex].aiFeedback  = evaluation.feedback;
@@ -202,7 +208,8 @@ router.post('/:id/nudge', protect, async (req, res) => {
       partialAnswer,
       type: interview.type,
       difficulty: interview.difficulty,
-      resumeContext
+      resumeContext,
+      language: interview.language
     });
     res.json({ nudge: r.nudge });
   } catch (err) {
@@ -238,7 +245,23 @@ router.post('/:id/complete', protect, async (req, res) => {
     interview.status           = 'completed';
     interview.completedAt      = new Date();
     interview.duration         = Math.round((new Date() - interview.startedAt) / 1000);
-    interview.scores           = { ...report.scores, overall: report.overall };
+    
+    // Penalize score if multiple gaze warnings (anti-cheat)
+    let finalOverall = report.overall;
+    const finalGazeWarnings = videoMetrics?.gazeWarnings || 0;
+    
+    if (finalGazeWarnings >= 2) {
+      finalOverall = Math.max(0, finalOverall - (finalGazeWarnings * 10)); // -10 points per warning
+      report.summary = `[INTEGRITY WARNING] Candidate was flagged for continuously looking away from the camera. ${report.summary}`;
+      if (!report.skillGaps) report.skillGaps = [];
+      report.skillGaps.push({
+        topic: 'Interview Integrity',
+        severity: 'high',
+        suggestions: ['Maintain eye contact with the camera', 'Do not read from notes or second screens during the interview']
+      });
+    }
+
+    interview.scores           = { ...report.scores, overall: finalOverall };
     interview.skillGaps        = report.skillGaps || [];
     interview.aiFeedbackSummary = report.summary;
     interview.transcript       = transcript;

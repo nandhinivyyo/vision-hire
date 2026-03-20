@@ -3,15 +3,25 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { Editor } from '@monaco-editor/react';
+
+// Suppress benign Monaco Editor ResizeObserver errors in development
+window.addEventListener('error', e => {
+  if (e.message && e.message.includes('ResizeObserver')) {
+    e.stopImmediatePropagation();
+  }
+});
 
 export default function InterviewRoomPage() {
   const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { questions = [], useVoice, useVideo, type, difficulty, totalTimeSeconds } = location.state || {};
+  const { questions = [], useVoice, useVideo, useCodeEditor, voiceLang = 'en-US', type, difficulty, totalTimeSeconds } = location.state || {};
 
   const [currentQ, setCurrentQ]     = useState(0);
   const [answer, setAnswer]         = useState('');
+  const [code, setCode]             = useState('// Write your code here...\n');
+  const [codeLang, setCodeLang]     = useState('javascript');
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback]     = useState(null);
   const [completing, setCompleting] = useState(false);
@@ -24,6 +34,13 @@ export default function InterviewRoomPage() {
   const lastTranscriptUiAtRef = useRef(0);
   const answerRef = useRef('');
   const answerTextareaRef = useRef(null);
+  const recordingStartTimeRef = useRef(0);
+  const submitAnswerRef = useRef(null);
+  const finishInterviewRef = useRef(null);
+
+  const multipleFacesFramesRef = useRef(0);
+  const multipleFaceWarningsRef = useRef(0);
+  const lastMultipleFaceCalloutRef = useRef(0);
 
   // ── Real video state ──
   const [camStatus, setCamStatus]       = useState('idle'); // idle | requesting | active | denied | nosupport
@@ -32,6 +49,10 @@ export default function InterviewRoomPage() {
   const [postureScore, setPostureScore] = useState(0);
   const [facePresence, setFacePresence] = useState(0); // % of frames face was detected
   const [warning, setWarning]           = useState('');
+  const [gazeWarnings, setGazeWarnings] = useState(0);
+  const gazeWarningsRef = useRef(0);
+  const lowGazeFramesRef = useRef(0);
+  const lastGazeCalloutRef = useRef(0);
   const [tfReady, setTfReady]           = useState(false);
   const [offscreenCount, setOffscreenCount] = useState(0);
   const offscreenCountRef = useRef(0);
@@ -56,6 +77,47 @@ export default function InterviewRoomPage() {
   const eyeScoreAcc     = useRef([]);
   const postureAcc      = useRef([]);
 
+  const [voicesLoaded, setVoicesLoaded] = useState(false);
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      if (window.speechSynthesis.getVoices().length > 0) setVoicesLoaded(true);
+      window.speechSynthesis.onvoiceschanged = () => setVoicesLoaded(true);
+    }
+  }, []);
+
+  const getVoiceForLang = useCallback((lang) => {
+    const voices = window.speechSynthesis?.getVoices() || [];
+    const shortLang = lang.split('-')[0];
+    const voice = voices.find(v => v.lang === lang) || 
+                  voices.find(v => v.lang.startsWith(shortLang) && (v.name.includes('Female') || v.name.includes('Google'))) || 
+                  voices.find(v => v.lang.startsWith(shortLang)) || 
+                  voices[0];
+    return voice;
+  }, []);
+
+  const speakHrRef = useRef(null);
+  const speakHr = useCallback((text) => {
+    try {
+      if (!text || !('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+      setTimeout(() => {
+        try {
+          const u = new SpeechSynthesisUtterance(text);
+          u.rate = 0.92;
+          u.pitch = 1.0;
+          u.volume = 1.0;
+          const preferred = getVoiceForLang(voiceLang);
+          if (preferred) u.voice = preferred;
+          window.speechSynthesis.speak(u);
+        } catch (e) { console.error("TTS inner error:", e); }
+      }, 250);
+    } catch (e) {
+      console.error("speakHr error:", e);
+    }
+  }, [voiceLang, getVoiceForLang]);
+  
+  useEffect(() => { speakHrRef.current = speakHr; }, [speakHr]);
+
   // ── Timer ──
   useEffect(() => {
     const t = setInterval(() => setTimeLeft(p => p > 0 ? p - 1 : 0), 1000);
@@ -64,12 +126,14 @@ export default function InterviewRoomPage() {
 
   useEffect(() => {
     // Practice mode: per-question timer. Session mode: single overall timer.
-    if (!totalTimeSeconds) setTimeLeft(180);
+    if (!totalTimeSeconds) setTimeLeft(useCodeEditor ? 300 : 120); // Reset timer based on editor usage
     setAnswer('');
+    setCode('// Write your code here...\n');
     setFeedback(null);
     answerRef.current = '';
+    finalTranscriptRef.current = ''; // Prevent previous question leak
     if (answerTextareaRef.current) answerTextareaRef.current.value = '';
-  }, [currentQ]);
+  }, [currentQ, totalTimeSeconds, useCodeEditor]);
 
   // Auto-finish when overall timer hits zero (session interviews)
   const timeUpRef = useRef(false);
@@ -96,6 +160,7 @@ export default function InterviewRoomPage() {
           eyeContactScore: eyeScore,
           postureScore: postureScore,
           facePresencePercent: facePresence,
+          gazeWarnings: gazeWarningsRef.current,
           warnings: [reason]
         } : { warnings: [reason] }
       });
@@ -175,13 +240,15 @@ export default function InterviewRoomPage() {
 
   // ── TTS ──
   useEffect(() => {
-    if (useVoice && questions[currentQ]?.question && 'speechSynthesis' in window) {
+    if (useVoice && questions[currentQ]?.question && voicesLoaded && 'speechSynthesis' in window) {
       const u = new SpeechSynthesisUtterance(questions[currentQ].question);
       u.rate = 0.9;
+      const preferred = getVoiceForLang(voiceLang);
+      if (preferred) u.voice = preferred;
       window.speechSynthesis.cancel();
       setTimeout(() => window.speechSynthesis.speak(u), 500);
     }
-  }, [currentQ, useVoice, questions]);
+  }, [currentQ, useVoice, questions, voiceLang, getVoiceForLang, voicesLoaded]);
 
   // ── Load TensorFlow + BlazeFace via CDN ──
   useEffect(() => {
@@ -275,6 +342,32 @@ export default function InterviewRoomPage() {
         if (!videoRef.current || videoRef.current.readyState < 2) return;
         try {
           const predictions = await model.estimateFaces(videoRef.current, false);
+          
+          // FEATURE: Multiple Face Detection Anti-Cheat
+          if (predictions.length > 1) {
+            multipleFacesFramesRef.current += 1;
+            if (multipleFacesFramesRef.current >= 4) { // ~2 seconds of continuous multiple faces
+              const now = Date.now();
+              if (now - lastMultipleFaceCalloutRef.current > 10000) {
+                multipleFaceWarningsRef.current += 1;
+                lastMultipleFaceCalloutRef.current = now;
+                
+                if (multipleFaceWarningsRef.current === 1) {
+                  setWarning('⚠️ Anti-Cheat: Multiple people detected in frame!');
+                  toast.error('First Warning: Please ensure you are alone.');
+                  if (speakHrRef.current) speakHrRef.current("Warning. I see multiple people in the camera frame. Please ensure you are alone for the test.");
+                } else {
+                  setWarning('⚠️ Anti-Cheat: Test Terminated (Multiple Faces).');
+                  toast.error('Terminating test due to multiple faces.');
+                  if (speakHrRef.current) speakHrRef.current("Multiple people detected again. Automatically submitting your test now.");
+                  autoEndedRef.current = true;
+                  if (finishInterviewRef.current) finishInterviewRef.current();
+                }
+              }
+            }
+          } else {
+            multipleFacesFramesRef.current = 0;
+          }
           processDetection(predictions.length > 0, predictions[0]);
         } catch { /* ignore frame errors */ }
       }, 500); // run every 500ms
@@ -368,8 +461,29 @@ export default function InterviewRoomPage() {
       // Smooth with rolling average (last 6 frames)
       const recentEye = eyeScoreAcc.current.slice(-6);
       const recentPosture = postureAcc.current.slice(-6);
-      setEyeScore(Math.round(recentEye.reduce((a,b)=>a+b,0)/recentEye.length));
+      const avgEye = Math.round(recentEye.reduce((a,b)=>a+b,0)/recentEye.length);
+      setEyeScore(avgEye);
       setPostureScore(Math.round(recentPosture.reduce((a,b)=>a+b,0)/recentPosture.length));
+
+      // ── Gaze Tracking / Anti-Cheat Voice Callouts ──
+      if (avgEye < 55) {
+        lowGazeFramesRef.current += 1;
+        // ~6 frames = ~3 seconds (since interval is 500ms)
+        if (lowGazeFramesRef.current >= 6) {
+          const now = Date.now();
+          // 15 second cooldown between voice callouts
+          if (now - lastGazeCalloutRef.current > 15000) {
+            gazeWarningsRef.current += 1;
+            setGazeWarnings(gazeWarningsRef.current);
+            speakHr("Please keep your eyes on the screen. Are you reading from notes?");
+            setWarning('⚠️ Gaze Tracking: Please look at the camera.');
+            toast.error('Flagged: Looking away from screen', { duration: 4000 });
+            lastGazeCalloutRef.current = now;
+          }
+        }
+      } else {
+        lowGazeFramesRef.current = 0;
+      }
 
     } else {
       // No face detected
@@ -402,9 +516,10 @@ export default function InterviewRoomPage() {
     }
 
     const r = new SR();
-    r.continuous = true; r.interimResults = true; r.lang = 'en-US';
+    r.continuous = true; r.interimResults = true; r.lang = voiceLang;
     finalTranscriptRef.current = '';
     r.onresult = (e) => {
+      if (window.speechSynthesis?.speaking) return; // IGNORE TTS ECHO
       lastSpeechAtRef.current = Date.now();
       let interim = '';
 
@@ -425,7 +540,7 @@ export default function InterviewRoomPage() {
       answerRef.current = combined;
       if (answerTextareaRef.current) answerTextareaRef.current.value = combined;
     };
-    r.onstart = () => setIsRecording(true);
+    r.onstart = () => { setIsRecording(true); recordingStartTimeRef.current = Date.now(); };
     r.onerror = (ev) => {
       setIsRecording(false);
       const code = ev?.error;
@@ -452,25 +567,6 @@ export default function InterviewRoomPage() {
 
   const stopVoice = () => { recognitionRef.current?.stop(); setIsRecording(false); };
 
-  const speakHr = (text) => {
-    if (!text || !('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    setTimeout(() => {
-      const u = new SpeechSynthesisUtterance(text);
-      u.rate = 0.92;
-      u.pitch = 1.0;
-      u.volume = 1.0;
-      const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(v =>
-        v.name.includes('Female') || v.name.includes('Samantha') ||
-        v.name.includes('Karen') || v.name.includes('Moira') ||
-        (v.lang === 'en-US' && v.name.includes('Google'))
-      );
-      if (preferred) u.voice = preferred;
-      window.speechSynthesis.speak(u);
-    }, 250);
-  };
-
   // ── HR assist when silent during voice (feels like a real interviewer) ──
   useEffect(() => {
     if (!isRecording) return;
@@ -483,6 +579,20 @@ export default function InterviewRoomPage() {
       if (window.speechSynthesis?.speaking) return;
 
       const now = Date.now();
+      
+      // FEATURE 4: Dynamic Interruption for rambling
+      // If code editor is open, they need 5 minutes limit instead of 42 seconds
+      const maxSpeechDuration = useCodeEditor ? 300000 : 42000;
+      if (recordingStartTimeRef.current > 0 && (now - recordingStartTimeRef.current > maxSpeechDuration)) {
+        if (speakHrRef.current) speakHrRef.current("Okay, let me stop you right there. I think we have enough to move on.");
+        setWarning("⚠️ Interrupted: Expected duration exceeded for this explanation.");
+        stopVoice();
+        setTimeout(() => {
+          if (submitAnswerRef.current) submitAnswerRef.current();
+        }, 3500);
+        return;
+      }
+
       const silentMs = now - lastSpeechAtRef.current;
       // Candidate is "stuck" if silent for 8s while recording
       if (silentMs < 8000) return;
@@ -522,13 +632,7 @@ export default function InterviewRoomPage() {
       u.rate = 0.88;
       u.pitch = 1.0;
       u.volume = 1.0;
-      // Try to use a female voice for HR feel
-      const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(v =>
-        v.name.includes('Female') || v.name.includes('Samantha') ||
-        v.name.includes('Karen') || v.name.includes('Moira') ||
-        (v.lang === 'en-US' && v.name.includes('Google'))
-      );
+      const preferred = getVoiceForLang(voiceLang);
       if (preferred) u.voice = preferred;
       window.speechSynthesis.speak(u);
     }, 300);
@@ -536,8 +640,13 @@ export default function InterviewRoomPage() {
 
   // ── Submit answer ──
   const submitAnswer = async () => {
-    const currentAnswer = (answerRef.current || answer || '').trim();
-    if (!currentAnswer) return toast.error('Please provide an answer');
+    let currentAnswer = (answerRef.current || answer || '').trim();
+    if (!currentAnswer && !(useCodeEditor && code.trim())) return toast.error('Please provide an answer or write code');
+    
+    if (useCodeEditor && code.trim() && code.trim() !== '// Write your code here...') {
+       currentAnswer += `\n\n[${codeLang} CODE SUBMISSION]:\n\`\`\`${codeLang}\n${code}\n\`\`\``;
+    }
+
     setSubmitting(true);
     try {
       const res = await axios.post(`/api/interview/${id}/answer`, {
@@ -546,7 +655,8 @@ export default function InterviewRoomPage() {
         videoMetrics: useVideo ? {
           eyeContactScore: eyeScore,
           postureScore: postureScore,
-          faceDetected
+          faceDetected,
+          gazeWarnings: gazeWarningsRef.current
         } : undefined
       });
       setFeedback(res.data.evaluation);
@@ -555,16 +665,34 @@ export default function InterviewRoomPage() {
       if (voiceText) speakFeedback(voiceText);
 
       if (!res.data.isComplete) {
-        // Wait for voice to finish before moving to next question
-        const voiceDelay = voiceText ? Math.max(5000, voiceText.length * 60) : 4000;
-        setTimeout(() => {
-          window.speechSynthesis.cancel();
-          setCurrentQ(q => q + 1);
-        }, voiceDelay);
+        if (!useCodeEditor) {
+          // Normal mode: auto-skip after voice finishes
+          const voiceDelay = voiceText ? Math.max(5000, voiceText.length * 60) : 4000;
+          window.nextQTimeout = setTimeout(() => {
+            window.speechSynthesis?.cancel?.();
+            setCurrentQ(q => q + 1);
+          }, voiceDelay);
+        }
       }
     } catch { toast.error('Failed to submit answer'); }
     finally { setSubmitting(false); }
   };
+
+  const handleNextManual = () => {
+    try { window.speechSynthesis?.cancel?.(); } catch(e){}
+    if (window.nextQTimeout) clearTimeout(window.nextQTimeout);
+    setCurrentQ(q => q + 1);
+  };
+
+  const handleSkip = () => {
+    try { window.speechSynthesis?.cancel?.(); } catch(e){}
+    if (window.nextQTimeout) clearTimeout(window.nextQTimeout);
+    if (isLast) finishInterview();
+    else setCurrentQ(q => q + 1);
+  };
+
+  useEffect(() => { submitAnswerRef.current = submitAnswer; });
+  useEffect(() => { finishInterviewRef.current = finishInterview; });
 
   // ── Finish interview ──
   const finishInterview = async () => {
@@ -575,7 +703,8 @@ export default function InterviewRoomPage() {
         videoMetrics: {
           eyeContactScore: eyeScore,
           postureScore: postureScore,
-          facePresencePercent: facePresence
+          facePresencePercent: facePresence,
+          gazeWarnings: gazeWarningsRef.current
         }
       });
       navigate(`/results/${id}`);
@@ -586,6 +715,7 @@ export default function InterviewRoomPage() {
   const progress = (currentQ / Math.max(questions.length, 1)) * 100;
   const isLast = currentQ >= questions.length - 1;
   const q = questions[currentQ]?.question;
+  const isCodingQ = useCodeEditor && q && /write a|implement a|design a|create a function|design an algorithm|code a|write code|coding problem/i.test(q);
 
   // Cam status UI
   const CamOverlay = () => {
@@ -734,81 +864,151 @@ export default function InterviewRoomPage() {
 
       <div style={{ display:'flex', flex:1 }}>
 
-        {/* Main content */}
-        <div style={{ flex:1, padding:32, display:'flex', flexDirection:'column', gap:20 }}>
+        {/* Main content container */}
+        <div style={{ flex:1, padding:32, display:'flex', flexDirection: useCodeEditor ? 'row' : 'column', gap:20 }}>
+          
+          <div style={{ flex:1, display:'flex', flexDirection:'column', gap:20, minHeight:0 }}>
 
-          {/* Question card */}
-          <AnimatePresence mode="wait">
-            <motion.div key={currentQ} initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-20 }}
-              style={{ background:'var(--card)', border:'1px solid rgba(249,115,22,0.25)', borderRadius:16, padding:28 }}>
-              <p style={{ color:'rgba(249,115,22,0.6)', fontSize:10, fontFamily:'JetBrains Mono', letterSpacing:3, marginBottom:10 }}>
-                QUESTION {currentQ+1} OF {questions.length}
-              </p>
-              <p style={{ color:'var(--t)', fontSize:18, lineHeight:1.7 }}>{q}</p>
-              {useVoice && (
-                <button onClick={() => { const u = new SpeechSynthesisUtterance(q); u.rate=0.9; window.speechSynthesis.speak(u); }}
-                  style={{ marginTop:10, color:'rgba(249,115,22,0.5)', background:'none', border:'none', cursor:'pointer', fontSize:11, fontFamily:'JetBrains Mono' }}>
-                  🔊 Replay question
-                </button>
-              )}
-            </motion.div>
-          </AnimatePresence>
+            {/* Scrollable Top Container for text/responses */}
+            <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:20, paddingRight:8 }}>
+              {/* Question card */}
+              <AnimatePresence mode="wait">
+                <motion.div key={currentQ} initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-20 }}
+                  style={{ background:'var(--card)', border:'1px solid rgba(249,115,22,0.25)', borderRadius:16, padding:28 }}>
+                  <p style={{ color:'rgba(249,115,22,0.6)', fontSize:10, fontFamily:'JetBrains Mono', letterSpacing:3, marginBottom:10 }}>
+                    QUESTION {currentQ+1} OF {questions.length}
+                  </p>
+                  <p style={{ color:'var(--t)', fontSize:18, lineHeight:1.7 }}>{q}</p>
+                  {useVoice && (
+                    <button onClick={() => { const u = new SpeechSynthesisUtterance(q); u.rate=0.9; window.speechSynthesis.speak(u); }}
+                      style={{ marginTop:10, color:'rgba(249,115,22,0.5)', background:'none', border:'none', cursor:'pointer', fontSize:11, fontFamily:'JetBrains Mono' }}>
+                      🔊 Replay question
+                    </button>
+                  )}
+                </motion.div>
+              </AnimatePresence>
 
-          {/* Feedback */}
-          <AnimatePresence>
-            {feedback && (
-              <motion.div initial={{ opacity:0, scale:0.95 }} animate={{ opacity:1, scale:1 }} exit={{ opacity:0 }}
-                style={{ borderRadius:16, padding:24, background:'rgba(249,115,22,0.06)', border:'1px solid rgba(249,115,22,0.3)' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-                  <span style={{ color:'#f97316', fontFamily:'JetBrains Mono', fontSize:10, letterSpacing:3 }}>AI FEEDBACK</span>
-                  <span style={{ fontFamily:'Rajdhani', fontWeight:700, fontSize:26, color: scoreColor(feedback.score) }}>
-                    {feedback.score}<span style={{ color:'var(--t4)', fontSize:13, fontFamily:'JetBrains Mono' }}>/100</span>
-                  </span>
-                </div>
-                <p style={{ color:'var(--t2)', fontSize:14, lineHeight:1.7 }}>{feedback.feedback}</p>
-                {!isLast && <p style={{ color:'rgba(249,115,22,0.4)', fontSize:11, fontFamily:'JetBrains Mono', marginTop:10 }}>⏳ Next question in 4 seconds...</p>}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Answer area */}
-          {!feedback && (
-            <>
-              <textarea
-                ref={answerTextareaRef}
-                defaultValue={answer}
-                onChange={e => { setAnswer(e.target.value); answerRef.current = e.target.value; }}
-                placeholder="Type your answer here, or click the mic to speak..."
-                style={{ background:'var(--card)', border:'1px solid rgba(249,115,22,0.2)', color:'var(--t)', fontFamily:'Exo 2', fontSize:14, lineHeight:1.7, padding:20, borderRadius:12, resize:'none', outline:'none', minHeight:180 }}
-                onFocus={e => e.target.style.borderColor='#f97316'}
-                onBlur={e => e.target.style.borderColor='rgba(249,115,22,0.2)'}
-              />
-              <div style={{ display:'flex', alignItems:'center', gap:14 }}>
-                {useVoice && (
-                  <motion.button whileTap={{ scale:0.9 }} onClick={isRecording ? stopVoice : startVoice}
-                    style={{ width:52, height:52, borderRadius:'50%', border:'1px solid rgba(249,115,22,0.4)', background: isRecording ? '#ef4444' : 'rgba(249,115,22,0.15)', fontSize:20, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', boxShadow: isRecording ? '0 0 20px rgba(239,68,68,0.5)' : 'none', flexShrink:0 }}>
-                    {isRecording ? '⏹️' : '🎙️'}
-                  </motion.button>
+              {/* Feedback */}
+              <AnimatePresence>
+                {feedback && (
+                  <motion.div initial={{ opacity:0, scale:0.95 }} animate={{ opacity:1, scale:1 }} exit={{ opacity:0 }}
+                    style={{ borderRadius:16, padding:24, background:'rgba(249,115,22,0.06)', border:'1px solid rgba(249,115,22,0.3)' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                      <span style={{ color:'#f97316', fontFamily:'JetBrains Mono', fontSize:10, letterSpacing:3 }}>AI FEEDBACK</span>
+                      <span style={{ fontFamily:'Rajdhani', fontWeight:700, fontSize:26, color: scoreColor(feedback.score) }}>
+                        {feedback.score}<span style={{ color:'var(--t4)', fontSize:13, fontFamily:'JetBrains Mono' }}>/100</span>
+                      </span>
+                    </div>
+                    <p style={{ color:'var(--t2)', fontSize:14, lineHeight:1.7 }}>{feedback.feedback}</p>
+                    {!isLast && !useCodeEditor && <p style={{ color:'rgba(249,115,22,0.4)', fontSize:11, fontFamily:'JetBrains Mono', marginTop:10 }}>⏳ Next question in a few seconds...</p>}
+                  </motion.div>
                 )}
-                {isRecording && <span style={{ color:'#ef4444', fontSize:11, fontFamily:'JetBrains Mono', display:'flex', alignItems:'center', gap:6 }}><span className="pulse-dot" style={{ background:'#ef4444' }}/>Recording...</span>}
-                <div style={{ flex:1 }} />
-                <motion.button whileHover={{ scale:1.02 }} whileTap={{ scale:0.98 }} onClick={submitAnswer}
-                  disabled={submitting || !(answerRef.current || answer || '').trim()}
-                  style={{ background:'linear-gradient(135deg,#f97316,#ea580c)', color:'#fff', border:'none', borderRadius:12, padding:'12px 32px', fontFamily:'Rajdhani', fontWeight:700, fontSize:14, letterSpacing:2, cursor: (!(answerRef.current || answer || '').trim()||submitting) ? 'not-allowed' : 'pointer', opacity: !(answerRef.current || answer || '').trim() ? 0.4 : 1, display:'flex', alignItems:'center', gap:8, boxShadow:'0 0 20px rgba(249,115,22,0.3)' }}>
-                  {submitting && <div className="spinner" style={{ width:16, height:16, borderWidth:2 }} />}
-                  {submitting ? 'Evaluating...' : isLast ? 'Submit Final Answer' : 'Submit & Next →'}
+              </AnimatePresence>
+
+              {/* Answer area */}
+              {!feedback && (
+                <textarea
+                  ref={answerTextareaRef}
+                  defaultValue={answer}
+                  onChange={e => { setAnswer(e.target.value); answerRef.current = e.target.value; }}
+                  placeholder="Type your answer here, or click the mic to speak..."
+                  style={{ flex:1, background:'var(--card)', border:'1px solid rgba(249,115,22,0.2)', color:'var(--t)', fontFamily:'Exo 2', fontSize:14, lineHeight:1.7, padding:20, borderRadius:12, resize:'none', outline:'none', minHeight:180 }}
+                  onFocus={e => e.target.style.borderColor='#f97316'}
+                  onBlur={e => e.target.style.borderColor='rgba(249,115,22,0.2)'}
+                />
+              )}
+            </div>
+
+            {/* Pinned Bottom Container for Buttons */}
+            <div style={{ display:'flex', alignItems:'center', gap:14, flexShrink:0, paddingBottom:10 }}>
+              {!feedback && useVoice && (
+                <motion.button whileTap={{ scale:0.9 }} onClick={isRecording ? stopVoice : startVoice}
+                  style={{ width:52, height:52, borderRadius:'50%', border:'1px solid rgba(249,115,22,0.4)', background: isRecording ? '#ef4444' : 'rgba(249,115,22,0.15)', fontSize:20, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', boxShadow: isRecording ? '0 0 20px rgba(239,68,68,0.5)' : 'none', flexShrink:0 }}>
+                  {isRecording ? '⏹️' : '🎙️'}
                 </motion.button>
-              </div>
-            </>
+              )}
+              {!feedback && isRecording && <span style={{ color:'#ef4444', fontSize:11, fontFamily:'JetBrains Mono', display:'flex', alignItems:'center', gap:6 }}><span className="pulse-dot" style={{ background:'#ef4444' }}/>Recording...</span>}
+              <div style={{ flex:1 }} />
+
+              {feedback ? (
+                isLast ? (
+                  <motion.button initial={{ opacity:0 }} animate={{ opacity:1 }} onClick={finishInterview} disabled={completing}
+                    style={{ background:'linear-gradient(135deg,#f97316,#ea580c)', color:'#fff', border:'none', borderRadius:12, padding:'16px 32px', fontFamily:'Rajdhani', fontWeight:700, fontSize:16, letterSpacing:2, cursor:'pointer', display:'flex', alignItems:'center', gap:10, boxShadow:'0 0 30px rgba(249,115,22,0.4)' }}>
+                    {completing ? <div className="spinner" style={{ width:20, height:20, borderWidth:2 }} /> : '🚀'}
+                    {completing ? 'Generating AI Report...' : 'View Full Results'}
+                  </motion.button>
+                ) : (
+                  <motion.button whileHover={{ scale:1.02 }} whileTap={{ scale:0.98 }} onClick={handleNextManual}
+                    disabled={completing}
+                    style={{ background:'linear-gradient(135deg,#22c55e,#16a34a)', color:'#fff', border:'none', borderRadius:12, padding:'12px 32px', fontFamily:'Rajdhani', fontWeight:700, fontSize:14, letterSpacing:2, cursor:'pointer', display:'flex', alignItems:'center', gap:8, boxShadow:'0 0 20px rgba(34,197,94,0.3)' }}>
+                    ✨ Next Question →
+                  </motion.button>
+                )
+              ) : (
+                <>
+                  <motion.button whileHover={{ scale:1.02 }} whileTap={{ scale:0.98 }} onClick={handleSkip}
+                    disabled={submitting}
+                    style={{ background:'transparent', color:'var(--t2)', border:'1px solid var(--border)', borderRadius:12, padding:'12px 20px', fontFamily:'Rajdhani', fontWeight:700, fontSize:14, letterSpacing:1, cursor: submitting ? 'not-allowed' : 'pointer' }}>
+                    {isLast ? 'Skip & Finish' : 'Skip'}
+                  </motion.button>
+
+                  <motion.button whileHover={{ scale:1.02 }} whileTap={{ scale:0.98 }} onClick={submitAnswer}
+                    disabled={submitting || (!(answerRef.current || answer || '').trim() && !(useCodeEditor && code.trim() && code.trim() !== '// Write your code here...'))}
+                    style={{ background:'linear-gradient(135deg,#f97316,#ea580c)', color:'#fff', border:'none', borderRadius:12, padding:'12px 32px', fontFamily:'Rajdhani', fontWeight:700, fontSize:14, letterSpacing:2, 
+                             cursor: (submitting || (!(answerRef.current || answer || '').trim() && !(useCodeEditor && code.trim() && code.trim() !== '// Write your code here...'))) ? 'not-allowed' : 'pointer', 
+                             opacity: (!(answerRef.current || answer || '').trim() && !(useCodeEditor && code.trim() && code.trim() !== '// Write your code here...')) ? 0.4 : 1, 
+                             display:'flex', alignItems:'center', gap:8, boxShadow:'0 0 20px rgba(249,115,22,0.3)' }}>
+                    {submitting && <div className="spinner" style={{ width:16, height:16, borderWidth:2 }} />}
+                    {submitting ? 'Evaluating...' : isLast ? 'Submit Final Answer' : 'Submit My Code/Answer →'}
+                  </motion.button>
+                </>
+              )}
+            </div>
+            
+          </div> {/* End Left Block */}
+
+          {useCodeEditor && (
+             <div style={{ flex:1, display:'flex', flexDirection:'column', background:'var(--card)', border:'1px solid rgba(249,115,22,0.2)', borderRadius:16, overflow:'hidden', minWidth:400 }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 16px', background:'rgba(249,115,22,0.1)', borderBottom:'1px solid rgba(249,115,22,0.2)' }}>
+                  <span style={{ fontSize:12, fontFamily:'Rajdhani', fontWeight:700, color:'#f97316', letterSpacing:1 }}>CODE EDITOR</span>
+                  <select value={codeLang} onChange={e => setCodeLang(e.target.value)} style={{ background:'var(--bg2)', color:'var(--t)', border:'1px solid rgba(249,115,22,0.3)', borderRadius:6, padding:'4px 8px', fontSize:11, fontFamily:'JetBrains Mono', outline:'none', cursor:'pointer' }}>
+                    <option value="javascript">JavaScript</option>
+                    <option value="python">Python</option>
+                    <option value="java">Java</option>
+                    <option value="c">C</option>
+                    <option value="cpp">C++</option>
+                    <option value="csharp">C#</option>
+                    <option value="go">Go</option>
+                    <option value="ruby">Ruby</option>
+                    <option value="sql">SQL / MySQL</option>
+                    <option value="typescript">TypeScript</option>
+                  </select>
+                </div>
+                <div style={{ flex:1, position:'relative' }}>
+                  <Editor
+                    height="100%"
+                    language={codeLang}
+                    theme="vs-dark"
+                    value={code}
+                    onChange={val => setCode(val)}
+                    options={{ minimap: { enabled: false }, fontSize: 13, fontFamily: 'JetBrains Mono', padding: { top: 16 } }}
+                  />
+                  <AnimatePresence>
+                    {!isCodingQ && (
+                      <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+                        style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.6)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:10 }}>
+                        <div style={{ padding: '16px 24px', background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)', borderRadius: 12, textAlign: 'center' }}>
+                          <p style={{ color:'#f97316', fontSize:20, marginBottom:8 }}>🔒</p>
+                          <p style={{ color:'var(--t)', fontFamily:'Rajdhani', fontWeight:700, fontSize:15, letterSpacing:1 }}>COMPILER LOCKED</p>
+                          <p style={{ color:'var(--t3)', fontFamily:'JetBrains Mono', fontSize:11, marginTop:4 }}>Only available for coding questions</p>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+             </div>
           )}
 
-          {feedback && isLast && (
-            <motion.button initial={{ opacity:0 }} animate={{ opacity:1 }} onClick={finishInterview} disabled={completing}
-              style={{ background:'linear-gradient(135deg,#f97316,#ea580c)', color:'#fff', border:'none', borderRadius:12, padding:'16px', fontFamily:'Rajdhani', fontWeight:700, fontSize:16, letterSpacing:2, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow:'0 0 30px rgba(249,115,22,0.4)' }}>
-              {completing ? <div className="spinner" style={{ width:20, height:20, borderWidth:2 }} /> : '🚀'}
-              {completing ? 'Generating AI Report...' : 'View Full Results & Score Report'}
-            </motion.button>
-          )}
         </div>
 
         {/* Video sidebar */}

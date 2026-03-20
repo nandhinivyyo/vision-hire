@@ -12,9 +12,10 @@ async function callGroq(prompt) {
   if (!apiKey || apiKey === 'your_groq_api_key_here') return null;
   return new Promise((resolve) => {
     const body = JSON.stringify({
-      model: 'llama3-8b-8192',
+      model: 'llama-3.1-8b-instant',
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.9, max_tokens: 2000,
+      response_format: { type: 'json_object' }
     });
     const opts = {
       hostname: 'api.groq.com', path: '/openai/v1/chat/completions', method: 'POST',
@@ -23,7 +24,10 @@ async function callGroq(prompt) {
     const req = https.request(opts, (res) => {
       let data = '';
       res.on('data', c => data += c);
-      res.on('end', () => { try { resolve(JSON.parse(data).choices?.[0]?.message?.content || null); } catch { resolve(null); } });
+      res.on('end', () => { 
+        if (res.statusCode !== 200) console.error("Groq API Error:", res.statusCode, data);
+        try { resolve(JSON.parse(data).choices?.[0]?.message?.content || null); } catch { resolve(null); } 
+      });
     });
     req.on('error', () => resolve(null));
     req.write(body); req.end();
@@ -58,7 +62,7 @@ async function callGemini(prompt) {
   if (!apiKey || apiKey === 'your_gemini_api_key_here') return null;
   const body = JSON.stringify({
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.9, maxOutputTokens: 2000 }
+    generationConfig: { temperature: 0.9, maxOutputTokens: 2000, responseMimeType: "application/json" }
   });
   for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-8b']) {
     const r = await callGeminiModel(apiKey, model, body);
@@ -88,7 +92,7 @@ function safeJSON(text, fallback) {
 const QUESTION_TYPES = {
   technical: [
     'conceptual', 'problem_solving', 'code_review', 'system_design',
-    'debugging', 'best_practices', 'comparison', 'real_world_scenario'
+    'debugging', 'best_practices', 'comparison', 'real_world_scenario', 'coding_problem'
   ],
   hr: [
     'self_intro', 'behavioral_star', 'situational', 'motivation',
@@ -96,7 +100,7 @@ const QUESTION_TYPES = {
   ],
   mixed: [
     'self_intro', 'technical_concept', 'behavioral_star', 'problem_solving',
-    'situational', 'system_design', 'career_goals', 'real_world_scenario'
+    'situational', 'system_design', 'career_goals', 'real_world_scenario', 'coding_problem'
   ]
 };
 
@@ -123,7 +127,7 @@ ${resumeText.substring(0, 4000)}`;
 
 // ─── QUESTION GENERATION (with forced variety) ──────────────────────────────
 async function generateInterviewQuestions(options) {
-  const { type = 'technical', difficulty = 'medium', resumeData, count = 10, sessionSeed } = options;
+  const { type = 'technical', topic, difficulty = 'medium', persona = 'friendly', language = 'en-US', resumeData, count = 10, sessionSeed } = options;
   const seed = sessionSeed || Math.random().toString(36).slice(2);
   const timestamp = Date.now();
 
@@ -164,11 +168,24 @@ CANDIDATE PROFILE:
     conflict_resolution:  'Ask about handling disagreements, feedback, or difficult situations',
     career_goals:         'Ask about their 3-5 year plan and how this role fits',
     technical_concept:    'Ask a fundamental technical concept relevant to their skills',
+    coding_problem:       'Ask a specific coding problem (e.g. "Write a function to...") that they must solve now in the live editor.',
   };
 
-  const typeGuide = selectedTypes.map((t, i) => `Q${i+1}: ${typeInstructions[t] || 'Ask a relevant interview question'}`).join('\n');
+  const typeGuide = topic 
+      ? `Generate exactly ${count} unique questions strictly and exclusively regarding the tech skill/topic: **${topic}**. Do not ask about anything else.`
+      : selectedTypes.map((t, i) => `Q${i+1}: ${typeInstructions[t] || 'Ask a relevant interview question'}`).join('\n');
 
-  const prompt = `You are a real HR interviewer conducting a ${type} interview at ${difficulty} difficulty.
+  const topics = ['Arrays', 'Hash Maps', 'Pointers', 'React/Frontend', 'System Design', 'APIs', 'Databases', 'Authentication', 'Microservices', 'Dynamic Programming', 'Scalability', 'Sorting', 'Trees/Graphs'];
+  const randTopics = topics.sort(() => Math.random() - 0.5).slice(0, 3);
+
+  let personaInstruction = `You are a real HR interviewer. You MUST translate and write ALL questions strictly in the language of this locale: ${language}.`;
+  if (persona === 'strict') {
+    personaInstruction = `You are a strict, no-nonsense Senior Tech Lead interviewer. You MUST translate and write ALL questions strictly in the language of this locale: ${language}.`;
+  } else if (persona === 'roast') {
+    personaInstruction = `You are a brutally honest, savage interviewer similar to Gordon Ramsay. You MUST translate and write ALL questions strictly in the language of this locale: ${language}.`;
+  }
+
+  const prompt = `${personaInstruction} conducting a ${type} interview at ${difficulty} difficulty.
 Session: ${seed}-${timestamp} (generate UNIQUE questions, different every session)
 ${resumeCtx || 'No resume — ask general questions for a student/fresher.'}
 
@@ -177,25 +194,49 @@ ${typeGuide}
 
 RULES:
 - Q1 MUST be a self-introduction question
+- CRITICAL: You MUST include at least one specific CODING PROBLEM (e.g. "Write a function to...") because the user has a live code editor available!
+- Ensure you ask completely UNIQUE questions every time. ${topic ? '' : `Include questions related to these random topics to force variety: ${randTopics.join(', ')}.`}
+- CRITICAL LANGUAGE RULE: ALL OUTPUT TEXT IN THE JSON arrays (every single question) MUST BE TRANSLATED TO THIS EXACT LANGUAGE LOCALE: "${language}". DO NOT OUTPUT ENGLISH UNLESS THE LOCALE IS ENGLISH. (e.g. 'fr-FR' = pure French, 'en-IN' = Hinglish).
 - Reference the candidate's ACTUAL skills, projects, and technologies when possible
 - Make each question DIFFERENT in format and topic
 - ${difficulty === 'easy' ? 'Keep questions foundational and approachable' : difficulty === 'medium' ? 'Include practical and applied scenarios' : 'Include advanced concepts, trade-offs, and system thinking'}
 - Sound like a real interviewer, conversational tone
 
-Return ONLY a JSON array, no markdown:
-["question1", "question2", "question3"]`;
+Return ONLY valid JSON in this exact format, no markdown:
+{
+  "questions": [
+    "question 1 string",
+    "question 2 string"
+  ]
+}`;
 
   const text = await callAI(prompt);
-  const result = safeJSON(text, []);
-  if (Array.isArray(result) && result.length >= 3) {
-    const first = result[0];
-    const rest = result.slice(1).sort(() => Math.random() - 0.5);
+  if (!text) console.error("AI returned null/empty response for questions");
+  
+  const parsed = safeJSON(text, null);
+  let qArray = [];
+  if (Array.isArray(parsed)) qArray = parsed;
+  else if (parsed && Array.isArray(parsed.questions)) qArray = parsed.questions;
+
+  if (qArray.length >= 1) {
+    // Llama 3 frequently hallucinates [{question: "..."}] instead of strings. Force strings.
+    const stringArray = qArray.map(q => {
+      if (typeof q === 'string') return q;
+      if (q && q.question) return q.question;
+      if (q && q.text) return q.text;
+      return String(q);
+    });
+    
+    const first = stringArray[0];
+    const rest = stringArray.slice(1).sort(() => Math.random() - 0.5);
     return [first, ...rest].slice(0, count);
   }
-  return buildFallbackQuestions(type, difficulty, resumeData, count);
+  
+  console.log("Failed to parse AI questions, using fallback. Raw AI Text:", text);
+  return buildFallbackQuestions(type, topic, difficulty, resumeData, count);
 }
 
-function buildFallbackQuestions(type, difficulty, resumeData, count) {
+function buildFallbackQuestions(type, topic, difficulty, resumeData, count) {
   const skills = resumeData?.skills || [];
   const techs  = resumeData?.technologies || [];
   const projects = resumeData?.projects || [];
@@ -214,6 +255,7 @@ function buildFallbackQuestions(type, difficulty, resumeData, count) {
       skills[1] ? `How does ${skills[0]} differ from ${skills[1]}? When would you choose one over the other?` : 'Explain the difference between relational and non-relational databases.',
       `What happens when you type a URL into a browser? Walk me through each step.`,
       `How would you design a simple URL shortener like bit.ly?`,
+      `Write a function to reverse a string or array without using built-in reverse methods.`,
       `Tell me about a bug you spent a long time debugging. What was the issue and how did you find it?`,
       `What is the difference between authentication and authorization? Give a real example.`,
       `How do you stay updated with new technologies and best practices?`,
@@ -232,12 +274,29 @@ function buildFallbackQuestions(type, difficulty, resumeData, count) {
     ],
   };
 
-  const pool = qBank[type] || [...qBank.technical.slice(0,5), ...qBank.hr.slice(1,5)];
-  return pool.slice(0, count);
+  const pool = qBank[type] || [...qBank.technical.slice(0,6), ...qBank.hr.slice(1,5)];
+  
+  if (topic) {
+    return [
+      intro,
+      `What are the core fundamentals of ${topic}?`,
+      `Explain a common challenge when working with ${topic} and how to solve it.`,
+      `What are the best practices for using ${topic}?`,
+      `How does ${topic} compare to its alternatives?`,
+      `Describe a time you built or learned something related to ${topic}.`,
+      `How do you debug issues in ${topic}?`,
+      `What is the most advanced concept you know about ${topic}?`,
+      `Write a basic code setup or design related to ${topic}.`,
+      `Where do you see the future of ${topic} heading?`
+    ].slice(0, count);
+  }
+
+  const rest = pool.slice(1).sort(() => Math.random() - 0.5);
+  return [pool[0], ...rest].slice(0, count);
 }
 
 // ─── EVALUATE ANSWER WITH VOICE RESPONSE ────────────────────────────────────
-async function evaluateAnswer(question, answer, resumeContext = '') {
+async function evaluateAnswer(question, answer, resumeContext = '', persona = 'friendly', language = 'en-US') {
   if (!answer || answer.trim().length < 3) {
     return {
       score: 0,
@@ -269,47 +328,71 @@ async function evaluateAnswer(question, answer, resumeContext = '') {
   ];
   const seed = Math.floor(Math.random() * 100);
 
-  const prompt = `You are a real HR interviewer — warm, professional, conversational. You just heard this candidate's answer.
+  let personaInstruction = 'You are a real HR interviewer — warm, professional, conversational. You just heard this candidate\'s answer.';
+  let personaRules = '- Sound encouraging but honest — like a mentor, not a robot\n- If good: praise the specific correct point, then suggest ONE improvement\n- If partial: acknowledge the correct part, then name the ONE missing concept\n- If wrong: gently correct them, give a hint toward the right answer';
+  
+  if (persona === 'strict') {
+    personaInstruction = 'You are a strict, direct Senior Tech Lead. Keep your feedback highly professional but slightly cold and extremely focused on accuracy.';
+    personaRules = '- Do not sugarcoat anything. State exactly what was factually incorrect.\n- If good: acknowledge it briefly, move on.\n- If partial/wrong: brutally dissect the flaw in their logic.';
+  } else if (persona === 'roast') {
+    personaInstruction = 'You are a brutally savage, hilarious interviewer like Gordon Ramsay assessing a junior dev. Roast them appropriately if they make mistakes. Be sarcastic but constructive in the end.';
+    personaRules = '- If they are terribly wrong, roast them creatively (e.g. "My grandmother could code better than that", "Did you just Google that and read the first line?").\n- Mock them playfully if they stutter or use filler words.\n- Still provide ONE actual technical improvement in your savage critique.';
+  }
+
+  const prompt = `${personaInstruction}
 Session randomizer: ${seed} — make your response UNIQUE and DIFFERENT each time, never repeat the same phrasing.
 
 Question: ${question}
 Candidate's Answer: ${answer}
 ${resumeContext ? `Candidate background: ${resumeContext}` : ''}
 
-SCORING RULES:
+CRITICAL RULES FOR CODE EVALUATION (If "CODE SUBMISSION" is in the answer):
+1. STRICT LINTER: You are a strict runtime compiler. Focus ONLY on syntax before logic.
+2. LANGUAGE MATCH: You MUST check the bracketed header (e.g. [javascript CODE SUBMISSION]). If the written code is Python but the header says javascript, this is a FATAL ERROR. Score must be 0.
+3. SYNTAX ERRORS: If a variable is undeclared or logic would crash the compiler in the stated language, YOU MUST FAIL THEM (Score: 0-20).
+4. CHAIN OF THOUGHT: Write your syntax analysis in the "compilerCheck" JSON field first.
+5. YOU MUST RETURN THE FULL JSON SCHEMA EVEN IF THEY FAIL.
+
+GENERAL SCORING RULES (Applies only if code compiles, or for spoken answers):
 - Correct and complete → 80-100
 - Mostly correct, minor gaps → 60-79
 - Partially correct → 40-59
 - Mostly wrong → 20-39
-- Completely wrong → 0-19
-- Short but correct answer should still score 70+
+- Completely wrong or does not compile → 0-19
 
-VOICE RESPONSE RULES (this is spoken aloud, make it sound NATURAL and HUMAN):
-- NEVER start with "I" — start with an opener like "${goodOpeners[seed % goodOpeners.length]}" for good answers
-- For partial: start with "${partialOpeners[seed % partialOpeners.length]}"  
-- For wrong: start with "${wrongOpeners[seed % wrongOpeners.length]}"
-- Reference what they SPECIFICALLY said — don't be generic
-- Vary your vocabulary each time — never say the same phrase twice
-- Keep it 2-4 sentences, conversational, like a real human speaking
-- If good: praise the specific correct point, then suggest ONE improvement
-- If partial: acknowledge the correct part, then name the ONE missing concept
-- If wrong: gently correct them, give a hint toward the right answer
-- Sound encouraging but honest — like a mentor, not a robot
+VOICE RESPONSE RULES:
+- Read the candidate's answer and provide a very short, conversational reaction to it as if you are speaking to them (max 2 sentences).
+- Start by acknowledging what they said. Say if it was good, bad, or missing something.
+- ${personaRules}
+- DO NOT just say "Great answer". Be specific but very brief.
+- The voiceResponse string MUST be translated strictly into this locale code language: "${language}". If "${language}" is 'en-IN' or 'hi-IN', use conversational Hindi mixed with English tech words (Hinglish).
 
-Return ONLY valid JSON:
+Return ONLY valid JSON in this exact format:
 {
+  "compilerCheck": "1-sentence explicit verification of whether the code uses the correct syntax for the language declared in the header. (e.g. 'Code is Python, but header is Javascript. FAILED.')",
   "score": 78,
   "voiceResponse": "Your unique varied natural spoken response here",
   "feedback": "Written detailed feedback for results page (3-4 sentences)",
   "strengths": ["specific correct point from their answer"],
   "improvements": ["one specific thing to improve"],
-  "correctAnswer": "Complete model answer — 4-6 thorough sentences covering all key points.",
-  "followUpQuestion": "A natural follow-up if answer was good, or null"
+  "correctAnswer": "Complete model answer.",
+  "followUpQuestion": "A natural follow-up or null"
 }`;
 
   const text = await callAI(prompt);
   const result = safeJSON(text, null);
-  if (result?.score !== undefined && result?.voiceResponse) return result;
+  
+  if (result?.score !== undefined) {
+    return {
+      score: result.score,
+      voiceResponse: result.voiceResponse || result.feedback || "Your code did not pass the compiler checks. Please review your syntax.",
+      feedback: result.feedback || "Compilation or syntax error.",
+      strengths: result.strengths || [],
+      improvements: result.improvements || ["Use the correct language syntax", "Declare all variables"],
+      correctAnswer: result.correctAnswer || "",
+      followUpQuestion: result.followUpQuestion || null
+    };
+  }
 
   const words = answer.trim().split(/\s+/).length;
   const score = Math.min(72, Math.max(20, Math.round(words * 1.5)));
@@ -352,10 +435,35 @@ Return ONLY valid JSON:
 // ─── GENERATE FULL REPORT WITH ANSWER GUIDE ─────────────────────────────────
 async function generateInterviewReport(interviewData) {
   const { questions, type, difficulty, resumeSkills = [] } = interviewData;
-  const answered = questions.filter(q => q.answer?.trim());
-  const avgScore = answered.length
-    ? Math.round(answered.reduce((s, q) => s + (q.score || 50), 0) / answered.length)
-    : 50;
+  const answered = questions.filter(q => q.answer?.trim() && q.answer.trim().length > 2);
+  
+  if (answered.length === 0) {
+    return {
+      scores: { technicalKnowledge: 0, communication: 0, confidence: 0, problemSolving: 0, clarity: 0 },
+      overall: 0,
+      summary: "You did not provide any valid answers during the interview. Please ensure you answer the questions next time.",
+      strengths: [],
+      weaknesses: ["No answers provided", "Empty Interview"],
+      skillGaps: [{
+        topic: "Interview Participation",
+        severity: "high",
+        description: "No answers were recorded.",
+        suggestions: ["Speak into the microphone clearly", "Ensure your environment is quiet", "Check if microphone permissions are granted"]
+      }],
+      recommendations: ["Test your microphone before starting", "Pace yourself and answer each question"],
+      answerGuide: questions.map((q) => ({
+        question: q.question,
+        candidateAnswer: 'Skipped / No answer',
+        score: 0,
+        whatWentWell: 'N/A',
+        whatWasMissing: 'Candidate did not answer this question completely.',
+        idealAnswer: q.correctAnswer || 'A strong answer would clearly address the core technical concepts involved.',
+        practicePrompt: `Practice answering: "${q.question}"`
+      }))
+    };
+  }
+
+  const avgScore = Math.round(answered.reduce((s, q) => s + (q.score || 0), 0) / questions.length);
 
   const qaText = answered.slice(0, 8).map((q, i) =>
     `Q${i+1}: ${q.question}\nCandidate: ${q.answer.substring(0, 200)}\nScore: ${q.score}/100`
@@ -424,11 +532,11 @@ Return ONLY valid JSON:
   // Full fallback
   const j = () => Math.round((Math.random() - 0.5) * 10);
   const scores = {
-    technicalKnowledge: Math.min(100, Math.max(10, avgScore + j())),
-    communication:      Math.min(100, Math.max(10, avgScore + j())),
-    confidence:         Math.min(100, Math.max(10, avgScore + j())),
-    problemSolving:     Math.min(100, Math.max(10, avgScore + j())),
-    clarity:            Math.min(100, Math.max(10, avgScore + j())),
+    technicalKnowledge: Math.min(100, Math.max(0, avgScore + j())),
+    communication:      Math.min(100, Math.max(0, avgScore + j())),
+    confidence:         Math.min(100, Math.max(0, avgScore + j())),
+    problemSolving:     Math.min(100, Math.max(0, avgScore + j())),
+    clarity:            Math.min(100, Math.max(0, avgScore + j())),
   };
   return {
     scores, overall: avgScore,
@@ -451,7 +559,7 @@ Return ONLY valid JSON:
 
 // ─── HR "NUDGE" PROMPT (when candidate is stuck) ────────────────────────────
 async function generateHrNudge(options) {
-  const { question, partialAnswer = '', type = 'hr', difficulty = 'medium', resumeContext = '' } = options || {};
+  const { question, partialAnswer = '', type = 'hr', difficulty = 'medium', resumeContext = '', language = 'en-US' } = options || {};
   const seed = Math.floor(Math.random() * 1000);
   const prompt = `You are a friendly, professional human HR interviewer.
 The candidate seems stuck (silence). Your job is to help them continue WITHOUT giving them the answer.
@@ -470,6 +578,7 @@ Rules:
 - DO NOT reveal the solution or key points directly
 - If they said nothing: ask them to start with a structure (example/STAR, definition + example, etc.)
 - End with a question mark
+- YOU MUST SPEAK STRICTLY IN THIS LOCALE LANGUAGE: "${language}" (e.g. 'en-IN' = Hinglish).
 
 Return ONLY valid JSON:
 { "nudge": "..." }`;

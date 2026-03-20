@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
@@ -8,6 +8,7 @@ const TYPES = [
   { id: 'technical', label: 'Technical', icon: '💻', desc: 'Data structures, algorithms, system design, frameworks' },
   { id: 'hr', label: 'HR / Behavioral', icon: '🤝', desc: 'Leadership, teamwork, situational judgment, culture fit' },
   { id: 'mixed', label: 'Mixed', icon: '⚡', desc: 'Combination of technical and behavioral questions' },
+  { id: 'topic', label: 'Topic-Focused', icon: '🎯', desc: 'Exclusive mock on a specific tech skill' },
 ];
 
 const DIFFICULTIES = [
@@ -15,6 +16,29 @@ const DIFFICULTIES = [
   { id: 'medium', label: 'Medium', color: '#eab308', desc: 'Practical scenarios, problem solving' },
   { id: 'hard', label: 'Hard', color: '#ef4444', desc: 'Advanced concepts, system design, edge cases' },
 ];
+
+const PERSONAS = [
+  { id: 'friendly', label: 'Friendly HR', icon: '😊', desc: 'Warm, encouraging, and supportive' },
+  { id: 'strict', label: 'Strict Tech Lead', icon: '🧐', desc: 'Professional, direct, expects high accuracy' },
+  { id: 'roast', label: 'Gordon Ramsay', icon: '🔥', desc: 'Brutally honest, hilarious, roasts mistakes' }
+];
+
+const LANGUAGES = [
+  { id: 'en-US', label: 'English (US)', icon: '🇺🇸', desc: 'Standard English' },
+  { id: 'hi-IN', label: 'Hinglish', icon: '🇮🇳', desc: 'Hindi & English' },
+  { id: 'es-ES', label: 'Spanish', icon: '🇪🇸', desc: 'Español' },
+  { id: 'fr-FR', label: 'French', icon: '🇫🇷', desc: 'Français' },
+];
+
+const TOPICS = [
+  'Computer Networks', 'DBMS', 'Operating Systems', 'OOPS', 
+  'Data Structures', 'Algorithms', 'System Design', 'HTML', 'CSS', 'JavaScript',
+  'TypeScript', 'React.js', 'Next.js', 'Vue.js', 'Angular', 'Node.js', 'Express.js',
+  'Python', 'Django', 'Flask', 'Java', 'Spring Boot', 'C++', 'C#', '.NET',
+  'Go', 'Rust', 'Ruby on Rails', 'PHP', 'Laravel', 'SQL', 'MySQL', 'PostgreSQL',
+  'MongoDB', 'Redis', 'GraphQL', 'REST APIs', 'Docker', 'Kubernetes', 'AWS',
+  'Google Cloud', 'Microsoft Azure', 'Machine Learning', 'Data Science', 'Cybersecurity'
+].sort();
 
 export default function InterviewSetupPage() {
   const navigate = useNavigate();
@@ -31,16 +55,21 @@ export default function InterviewSetupPage() {
 
   const [type, setType] = useState(preType || sessionDefaults?.type || 'technical');
   const [difficulty, setDifficulty] = useState(preDiff || sessionDefaults?.difficulty || 'medium');
+  const [persona, setPersona] = useState('friendly');
+  const [voiceLang, setVoiceLang] = useState('en-US');
   const [useVoice, setUseVoice] = useState(false);
   const [useVideo, setUseVideo] = useState(false);
+  const [useCodeEditor, setUseCodeEditor] = useState(false);
+  const [selectedTopic, setSelectedTopic] = useState('');
+  const [topicSearch, setTopicSearch] = useState('');
   const [starting, setStarting] = useState(false);
 
   const startInterview = async () => {
     setStarting(true);
     try {
-      const res = await axios.post('/api/interview/start', { type, difficulty, mode, sessionId, useResume: true });
+      const res = await axios.post('/api/interview/start', { type, topic: type === 'topic' ? selectedTopic : null, difficulty, persona, language: voiceLang, mode, sessionId, useResume: true });
       navigate(`/interview/${res.data.interviewId}`, {
-        state: { questions: res.data.questions, useVoice, useVideo, type, difficulty, totalTimeSeconds: res.data.totalTimeSeconds }
+        state: { questions: res.data.questions, useVoice, useVideo, useCodeEditor, voiceLang, type, difficulty, totalTimeSeconds: res.data.totalTimeSeconds }
       });
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to start interview');
@@ -74,7 +103,7 @@ export default function InterviewSetupPage() {
         {/* Interview Type */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="mb-8">
           <p className="text-white/60 font-mono text-xs tracking-wider mb-4">INTERVIEW TYPE</p>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {TYPES.map(t => (
               <motion.div
                 key={t.id}
@@ -93,6 +122,39 @@ export default function InterviewSetupPage() {
             ))}
           </div>
         </motion.div>
+
+        {/* Topic Selector */}
+        <AnimatePresence>
+          {type === 'topic' && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mb-8 overflow-hidden">
+              <p className="text-white/60 font-mono text-xs tracking-wider mb-4">SELECT SPECIFIC TOPIC</p>
+              <div className="glass-card p-6">
+                <input 
+                  type="text" 
+                  placeholder="Search 45+ topics (e.g. React, DBMS, AWS)..." 
+                  value={topicSearch}
+                  onChange={e => setTopicSearch(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 text-white rounded-xl px-4 py-3 mb-4 outline-none focus:border-orange-500 transition-colors"
+                />
+                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                  {TOPICS.filter(t => t.toLowerCase().includes(topicSearch.toLowerCase())).map(t => (
+                    <button
+                      key={t}
+                      onClick={() => setSelectedTopic(t)}
+                      className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${selectedTopic === t ? 'bg-orange-500 text-white shadow-[0_0_15px_rgba(249,115,22,0.4)]' : 'bg-white/5 text-white/70 hover:bg-white/10 hover:text-white'}`}
+                      style={{ border: selectedTopic === t ? '1px solid #f97316' : '1px solid rgba(255,255,255,0.05)' }}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                  {TOPICS.filter(t => t.toLowerCase().includes(topicSearch.toLowerCase())).length === 0 && (
+                    <p className="text-white/40 text-sm py-2">No topics found matching "{topicSearch}"</p>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Difficulty */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="mb-8">
@@ -114,6 +176,52 @@ export default function InterviewSetupPage() {
           </div>
         </motion.div>
 
+        {/* Persona */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="mb-8">
+          <p className="text-white/60 font-mono text-xs tracking-wider mb-4">INTERVIEWER PERSONA</p>
+          <div className="grid grid-cols-3 gap-4">
+            {PERSONAS.map(p => (
+              <motion.div
+                key={p.id}
+                onClick={() => setPersona(p.id)}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="glass-card p-5 transition-all duration-200 cursor-pointer overflow-hidden relative"
+                style={{ border: persona === p.id ? '1px solid #f97316' : undefined, boxShadow: persona === p.id ? '0 0 25px rgba(249,115,22,0.2)' : undefined }}>
+                <div className="text-2xl mb-2">{p.icon}</div>
+                <p className="font-display font-bold text-white text-base mb-1">{p.label}</p>
+                <p className="text-white/35 text-xs leading-relaxed">{p.desc}</p>
+                {persona === p.id && <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="w-3 h-3"><path d="M5 13l4 4L19 7" /></svg>
+                </div>}
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+
+        {/* Language */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28 }} className="mb-8">
+          <p className="text-white/60 font-mono text-xs tracking-wider mb-4">INTERVIEW LANGUAGE</p>
+          <div className="grid grid-cols-4 gap-4">
+            {LANGUAGES.map(l => (
+              <motion.div
+                key={l.id}
+                onClick={() => setVoiceLang(l.id)}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="glass-card p-4 transition-all duration-200 cursor-pointer overflow-hidden relative"
+                style={{ border: voiceLang === l.id ? '1px solid #f97316' : undefined, boxShadow: voiceLang === l.id ? '0 0 25px rgba(249,115,22,0.2)' : undefined }}>
+                <div className="text-2xl mb-1">{l.icon}</div>
+                <p className="font-display font-bold text-white text-sm mb-1">{l.label}</p>
+                <p className="text-white/35 text-xs leading-relaxed">{l.desc}</p>
+                {voiceLang === l.id && <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-orange-500 flex items-center justify-center">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="w-2 h-2"><path d="M5 13l4 4L19 7" /></svg>
+                </div>}
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+
         {/* Features */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="glass-card p-6 mb-8">
           <p className="text-white/60 font-mono text-xs tracking-wider mb-4">INTERVIEW FEATURES</p>
@@ -121,6 +229,7 @@ export default function InterviewSetupPage() {
             {[
               { key: 'voice', label: 'Voice Input', desc: 'Answer using your microphone (Speech-to-Text)', icon: '🎙️', val: useVoice, set: setUseVoice },
               { key: 'video', label: 'Video Monitoring', desc: 'Eye contact and posture analysis via webcam', icon: '📹', val: useVideo, set: setUseVideo },
+              { key: 'code', label: 'Live Code Editor', desc: 'Write and test code during your interview', icon: '💻', val: useCodeEditor, set: setUseCodeEditor },
             ].map(f => (
               <div key={f.key} onClick={() => f.set(!f.val)}
                 className="flex items-center gap-4 p-4 rounded-xl cursor-pointer transition-all"
@@ -144,8 +253,8 @@ export default function InterviewSetupPage() {
             <span className="text-orange-500">ℹ</span>
             <p className="text-white/40 text-sm">You'll get <span className="text-orange-400">8–10 AI-generated questions</span> tailored to your resume, type, and difficulty. Each answer is evaluated in real-time.</p>
           </div>
-          <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={startInterview} disabled={starting}
-            className="btn-orange w-full py-4 rounded-xl font-display text-lg tracking-widest flex items-center justify-center gap-3">
+          <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={startInterview} disabled={starting || (type === 'topic' && !selectedTopic)}
+            className="btn-orange w-full py-4 rounded-xl font-display text-lg tracking-widest flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed">
             {starting ? (
               <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating Questions...</>
             ) : '🚀  BEGIN INTERVIEW'}

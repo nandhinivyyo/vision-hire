@@ -41,6 +41,15 @@ export default function EntryPage() {
       color: '#f97316',
     },
     {
+      id: 'topic',
+      icon: '📚',
+      title: 'Topic-Wise Mock',
+      subtitle: 'Targeted Skill Practice',
+      desc: 'Focus entirely on a single technology or subject. Select from 45+ specific tech skills to master quickly.',
+      features: ['45+ Curated Topics', 'Deep-dive questions', 'Live code evaluation', 'Domain mastery scoring'],
+      color: '#3b82f6',
+    },
+    {
       id: 'admin',
       icon: '🏛️',
       title: 'Admin Session',
@@ -62,7 +71,7 @@ export default function EntryPage() {
           <p className="text-white/40 text-lg">Choose your interview mode to get started</p>
         </motion.div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
           {modes.map((m, i) => (
             <motion.div key={m.id} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.15 }}
               onClick={() => setMode(mode === m.id ? null : m.id)}
@@ -107,6 +116,19 @@ export default function EntryPage() {
                   Skip & Start Interview →
                 </motion.button>
               </div>
+            </motion.div>
+          )}
+
+          {mode === 'topic' && (
+            <motion.div initial={{ opacity: 0, y: 20, height: 0 }} animate={{ opacity: 1, y: 0, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+              className="glass-card p-6 mb-6 text-center">
+              <h3 className="font-display font-bold text-xl text-white mb-2">Topic-Focused Mock</h3>
+              <p className="text-white/40 text-sm mb-5">Jump straight into the targeted topic selection portal to choose your technical focus.</p>
+              <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                onClick={() => navigate('/setup', { state: { mode: 'practice', type: 'topic' } })}
+                className="btn-orange px-10 py-4 rounded-xl font-display text-sm tracking-widest inline-flex items-center gap-2">
+                Select Your Topic <span>→</span>
+              </motion.button>
             </motion.div>
           )}
 
