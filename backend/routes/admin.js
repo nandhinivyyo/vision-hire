@@ -6,6 +6,7 @@ const User = require('../models/User');
 const Interview = require('../models/Interview');
 const crypto = require('crypto');
 const sendEmail = require('../utils/sendEmail');
+const { getVerificationEmailTemplate } = require('../utils/emailTemplates');
 
 // GET /api/admin/stats
 router.get('/stats', protect, adminOnly, async (req, res) => {
@@ -100,7 +101,8 @@ router.post('/students', protect, adminOnly, async (req, res) => {
     sendEmail({
       email: user.email,
       subject: 'VisionHire Account Verification',
-      message
+      message,
+      html: getVerificationEmailTemplate(frontendVerifyUrl, true)
     }).catch(err => console.error("Background auth email failed on admin create:", err));
 
     res.status(201).json({ ...user.toJSON(), message: 'User created and verification email is being sent.' });

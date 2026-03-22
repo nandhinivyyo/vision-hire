@@ -6,6 +6,7 @@ const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const { protect } = require('../middleware/auth');
 const sendEmail = require('../utils/sendEmail');
+const { getVerificationEmailTemplate, getResetPasswordTemplate } = require('../utils/emailTemplates');
 
 const generateToken = (id) => jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 
@@ -60,7 +61,8 @@ router.post('/register', [
     sendEmail({
       email: user.email,
       subject: 'VisionHire Account Verification',
-      message
+      message,
+      html: getVerificationEmailTemplate(frontendVerifyUrl, false)
     }).catch(err => console.error("Background email failed:", err));
 
     res.status(201).json({
@@ -153,7 +155,8 @@ router.post('/forgotpassword', async (req, res) => {
     sendEmail({
       email: user.email,
       subject: 'VisionHire Password Reset',
-      message
+      message,
+      html: getResetPasswordTemplate(resetUrl)
     }).catch(err => console.error("Background PR email failed:", err));
     
     res.status(200).json({ message: 'If an account with that email exists, a reset link has been sent.' });
