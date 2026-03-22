@@ -94,7 +94,7 @@ router.post('/students', protect, adminOnly, async (req, res) => {
     await user.save({ validateBeforeSave: false });
 
     // Send Verification Email
-    const frontendVerifyUrl = `http://localhost:3000/verify/${verifyToken}`;
+    const frontendVerifyUrl = `${process.env.CLIENT_URL || 'http://localhost:3000'}/verify/${verifyToken}`;
     const message = `Welcome to VisionHire! An admin has created an account for you. Please confirm your account by clicking the link below: \n\n ${frontendVerifyUrl}`;
 
     sendEmail({
