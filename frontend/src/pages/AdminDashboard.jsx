@@ -269,7 +269,7 @@ export default function AdminDashboard() {
                     <motion.div key={s._id} whileHover={{ x: 4 }} className="flex items-center gap-4 group cursor-default">
                       <span className="text-[var(--t4)] font-mono text-xs w-4 font-bold opacity-50">{i+1}</span>
                       <div className="w-10 h-10 rounded-full border border-[var(--border)] bg-[var(--od)] flex items-center justify-center text-sm font-bold text-[var(--o)] group-hover:shadow-[0_0_15px_var(--od)] transition-shadow overflow-hidden">
-                        {s.avatar ? <img src={`${import.meta.env.VITE_API_URL}${s.avatar}`} alt="Avatar" className="w-full h-full object-cover" /> : s.name[0]}
+                        {s.avatar ? <img src={`${process.env.REACT_APP_API_URL}${s.avatar}`} alt="Avatar" className="w-full h-full object-cover" /> : s.name[0]}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-[var(--t)] font-bold text-sm truncate">{s.name}</p>
@@ -319,7 +319,7 @@ export default function AdminDashboard() {
                             <td className="p-5">
                               <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-full bg-[var(--od)] border border-[var(--border2)] flex items-center justify-center text-xs font-bold text-[var(--o)] group-hover:scale-110 transition-transform overflow-hidden">
-                                  {s.avatar ? <img src={`${import.meta.env.VITE_API_URL}${s.avatar}`} alt="Avatar" className="w-full h-full object-cover" /> : s.name[0]}
+                                  {s.avatar ? <img src={`${process.env.REACT_APP_API_URL}${s.avatar}`} alt="Avatar" className="w-full h-full object-cover" /> : s.name[0]}
                                 </div>
                                 <div className="flex flex-col">
                                   <span className="text-[var(--t)] font-semibold flex items-center gap-2">{s.name} {s.role === 'admin' && <span className="text-[8px] bg-[#FF6A00] text-white px-1.5 py-0.5 rounded uppercase font-bold tracking-widest leading-none">Admin</span>}</span>

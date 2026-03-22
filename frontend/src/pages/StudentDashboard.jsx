@@ -190,7 +190,7 @@ export default function StudentDashboard() {
           <div className="relative group">
             <div className="w-24 h-24 rounded-full border-2 border-[#FF6A00]/50 bg-[var(--card)] flex items-center justify-center overflow-hidden shadow-[0_0_20px_rgba(255,106,0,0.2)]">
               {u?.avatar ? (
-                <img src={`${import.meta.env.VITE_API_URL}${u.avatar}`} alt="Avatar" className="w-full h-full object-cover" />
+                <img src={`${process.env.REACT_APP_API_URL}${u.avatar}`} alt="Avatar" className="w-full h-full object-cover" />
               ) : (
                 <span className="text-3xl font-display font-bold text-[#FF6A00]">{u?.name?.[0]}</span>
               )}

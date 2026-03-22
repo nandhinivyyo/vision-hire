@@ -119,7 +119,7 @@ export default function Navbar({ onMenuClick }) {
               <p className="text-[10px] uppercase font-mono tracking-widest text-[#FF6A00]">{user.role}</p>
             </div>
             <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg shadow-[0_4px_15px_rgba(255,106,0,0.3)] bg-[var(--od)] text-[var(--o)] border border-[var(--border)] overflow-hidden">
-              {user.avatar ? <img src={`${import.meta.env.VITE_API_URL}${user.avatar}`} alt="Avatar" className="w-full h-full object-cover" /> : user.name?.[0]?.toUpperCase()}
+              {user.avatar ? <img src={`${process.env.REACT_APP_API_URL}${user.avatar}`} alt="Avatar" className="w-full h-full object-cover" /> : user.name?.[0]?.toUpperCase()}
             </div>
             {user.role === 'student' && (
               <button onClick={openProfileModal} className="ml-3 text-[11px] font-bold text-white/40 hover:text-white transition-colors uppercase tracking-widest bg-[var(--card)] hover:bg-[var(--card2)] px-3 py-1.5 rounded-lg border border-[var(--border2)]">
@@ -146,7 +146,7 @@ export default function Navbar({ onMenuClick }) {
                 <form onSubmit={saveProfile} className="space-y-4">
                   <div className="flex items-center gap-6 mb-6">
                     <div className="w-20 h-20 rounded-full bg-[var(--od)] border border-[var(--border)] flex items-center justify-center font-bold text-3xl text-[var(--o)] overflow-hidden relative group">
-                      {user?.avatar ? <img src={`${import.meta.env.VITE_API_URL}${user.avatar}`} alt="Avatar" className="w-full h-full object-cover" /> : user?.name?.[0]?.toUpperCase()}
+                      {user?.avatar ? <img src={`${process.env.REACT_APP_API_URL}${user.avatar}`} alt="Avatar" className="w-full h-full object-cover" /> : user?.name?.[0]?.toUpperCase()}
                       <label className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity backdrop-blur-sm">
                         <span className="text-xs font-bold text-white uppercase tracking-widest">{uploadingAvatar ? '...' : 'Upload'}</span>
                         <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} disabled={uploadingAvatar} />
