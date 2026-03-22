@@ -30,6 +30,7 @@ async function callGroq(prompt) {
       });
     });
     req.on('error', () => resolve(null));
+    req.setTimeout(5000, () => { req.destroy(); resolve(null); });
     req.write(body); req.end();
   });
 }
@@ -53,6 +54,7 @@ async function callGeminiModel(apiKey, model, body) {
       });
     });
     req.on('error', () => resolve({ ok: false, status: 500 }));
+    req.setTimeout(12000, () => { req.destroy(); resolve({ ok: false, status: 408 }); });
     req.write(body); req.end();
   });
 }
@@ -471,7 +473,10 @@ async function generateInterviewReport(interviewData) {
 
   const prompt = `You are a career counselor writing a detailed post-interview report with an ANSWER GUIDE so the candidate can improve.
 
-Interview: ${type} (${difficulty}) | Skills: ${resumeSkills.slice(0,5).join(', ') || 'general'} | Avg score: ${avgScore}/100
+Interview: ${type} (${difficulty}) | Skills: ${resumeSkills.slice(0,5).join(', ') || 'general'}
+Candidate answered ${answered.length} out of ${questions.length} questions.
+Because they skipped questions, their TRUE MATHEMATICAL AVERAGE is: ${avgScore}/100.
+Ensure the overall score strongly reflects this penalty.
 
 ${qaText}
 
@@ -513,7 +518,17 @@ Return ONLY valid JSON:
   const text = await callAI(prompt);
   const result = safeJSON(text, null);
 
-  if (result?.scores && result?.overall) {
+  if (result?.scores !== undefined) {
+    // Strictly enforce math to override AI hallucinations when skipping questions
+    result.overall = avgScore;
+    if (answered.length < questions.length) {
+      for (const k of Object.keys(result.scores)) {
+        if (typeof result.scores[k] === 'number') {
+          result.scores[k] = Math.min(result.scores[k], avgScore + 15);
+        }
+      }
+    }
+
     // If AI didn't generate answerGuide, build it from existing question data
     if (!result.answerGuide?.length) {
       result.answerGuide = questions.map(q => ({

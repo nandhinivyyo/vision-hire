@@ -4,6 +4,8 @@ const router = express.Router();
 const { protect, adminOnly } = require('../middleware/auth');
 const User = require('../models/User');
 const Interview = require('../models/Interview');
+const crypto = require('crypto');
+const sendEmail = require('../utils/sendEmail');
 
 // GET /api/admin/stats
 router.get('/stats', protect, adminOnly, async (req, res) => {
@@ -30,15 +32,16 @@ router.get('/stats', protect, adminOnly, async (req, res) => {
 // GET /api/admin/students
 router.get('/students', protect, adminOnly, async (req, res) => {
   try {
-    const { department, year, college, page = 1, limit = 20 } = req.query;
-    const filter = { role: 'student' };
+    const { department, year, college, role, page = 1, limit = 20 } = req.query;
+    const filter = {}; // Allow seeing all users
     if (department && department !== 'all') filter.department = department;
     if (year && year !== 'all') filter.year = year;
     if (college && college !== 'all') filter.collegeName = college;
+    if (role && role !== 'all') filter.role = role;
 
     const students = await User.find(filter)
       .select('-password')
-      .sort({ averageScore: -1 })
+      .sort({ role: 1, averageScore: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
 
@@ -68,6 +71,75 @@ router.get('/top-performers', protect, adminOnly, async (req, res) => {
       .limit(10)
       .select('name email department year collegeName averageScore bestScore totalInterviews');
     res.json(top);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/admin/students (also supports creating staff/admins)
+router.post('/students', protect, adminOnly, async (req, res) => {
+  try {
+    const { name, email, rollNumber, registerNumber, collegeName, department, year, phone, password, role } = req.body;
+    const userExists = await User.findOne({ email });
+    if (userExists) return res.status(400).json({ message: 'User already exists' });
+
+    const newRole = role === 'admin' ? 'admin' : 'student';
+
+    const user = await User.create({
+      name, email, rollNumber, registerNumber, collegeName, department, year, phone, password, role: newRole, isVerified: false
+    });
+    
+    // Generate Verification Token
+    const verifyToken = user.getSignedVerifyToken();
+    await user.save({ validateBeforeSave: false });
+
+    // Send Verification Email
+    const frontendVerifyUrl = `http://localhost:3000/verify/${verifyToken}`;
+    const message = `Welcome to VisionHire! An admin has created an account for you. Please confirm your account by clicking the link below: \n\n ${frontendVerifyUrl}`;
+
+    sendEmail({
+      email: user.email,
+      subject: 'VisionHire Account Verification',
+      message
+    }).catch(err => console.error("Background auth email failed on admin create:", err));
+
+    res.status(201).json({ ...user.toJSON(), message: 'User created and verification email is being sent.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// PUT /api/admin/students/:id
+router.put('/students/:id', protect, adminOnly, async (req, res) => {
+  try {
+    const { name, email, rollNumber, registerNumber, collegeName, department, year, phone, password } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (name) user.name = name;
+    if (email) user.email = email;
+    if (rollNumber) user.rollNumber = rollNumber;
+    if (registerNumber) user.registerNumber = registerNumber;
+    if (collegeName) user.collegeName = collegeName;
+    if (department) user.department = department;
+    if (year) user.year = year;
+    if (phone) user.phone = phone;
+    if (password) user.password = password;
+
+    await user.save();
+    res.json(user.toJSON());
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// DELETE /api/admin/students/:id
+router.delete('/students/:id', protect, adminOnly, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    await user.deleteOne();
+    res.json({ message: 'User deleted' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

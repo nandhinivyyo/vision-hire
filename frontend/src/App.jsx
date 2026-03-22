@@ -1,11 +1,14 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import { AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 
 import LandingPage         from './pages/LandingPage';
 import AuthPage            from './pages/AuthPage';
+import VerifyEmailPage     from './pages/VerifyEmailPage';
+import ResetPasswordPage   from './pages/ResetPasswordPage';
 import EntryPage           from './pages/EntryPage';
 import ResumeUploadPage    from './pages/ResumeUploadPage';
 import InterviewSetupPage  from './pages/InterviewSetupPage';
@@ -14,7 +17,10 @@ import ResultsPage         from './pages/ResultsPage';
 import StudentDashboard    from './pages/StudentDashboard';
 import AdminDashboard      from './pages/AdminDashboard';
 import LeaderboardPage     from './pages/LeaderboardPage';
+
 import Layout              from './components/common/Layout';
+import PageTransition      from './components/common/PageTransition';
+import SpotlightBackground from './components/common/SpotlightBackground';
 
 const ProtectedRoute = ({ children, adminOnly = false }) => {
   const { user, loading } = useAuth();
@@ -33,20 +39,29 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
 
 const AppRoutes = () => {
   const { user } = useAuth();
+  const location = useLocation();
+
   return (
-    <Routes>
-      <Route path="/"             element={<LandingPage />} />
-      <Route path="/auth"         element={user ? <Navigate to={user.role === 'admin' ? '/admin' : '/entry'} replace /> : <AuthPage />} />
-      <Route path="/entry"        element={<ProtectedRoute><Layout><EntryPage /></Layout></ProtectedRoute>} />
-      <Route path="/resume"       element={<ProtectedRoute><Layout><ResumeUploadPage /></Layout></ProtectedRoute>} />
-      <Route path="/setup"        element={<ProtectedRoute><Layout><InterviewSetupPage /></Layout></ProtectedRoute>} />
-      <Route path="/interview/:id" element={<ProtectedRoute><InterviewRoomPage /></ProtectedRoute>} />
-      <Route path="/results/:id"  element={<ProtectedRoute><Layout><ResultsPage /></Layout></ProtectedRoute>} />
-      <Route path="/dashboard"    element={<ProtectedRoute><Layout><StudentDashboard /></Layout></ProtectedRoute>} />
-      <Route path="/admin"        element={<ProtectedRoute adminOnly><Layout><AdminDashboard /></Layout></ProtectedRoute>} />
-      <Route path="/leaderboard"  element={<ProtectedRoute><Layout><LeaderboardPage /></Layout></ProtectedRoute>} />
-      <Route path="*"             element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      <SpotlightBackground />
+      <AnimatePresence mode="wait" initial={false}>
+        <Routes location={location} key={location.pathname}>
+          <Route path="/"             element={<PageTransition><LandingPage /></PageTransition>} />
+          <Route path="/verify/:token" element={<PageTransition><VerifyEmailPage /></PageTransition>} />
+          <Route path="/resetpassword/:token" element={<PageTransition><ResetPasswordPage /></PageTransition>} />
+          <Route path="/auth"         element={user ? <Navigate to={user.role === 'admin' ? '/admin' : '/dashboard'} replace /> : <PageTransition><AuthPage /></PageTransition>} />
+          <Route path="/entry"        element={<ProtectedRoute><PageTransition><Layout><EntryPage /></Layout></PageTransition></ProtectedRoute>} />
+          <Route path="/resume"       element={<ProtectedRoute><PageTransition><Layout><ResumeUploadPage /></Layout></PageTransition></ProtectedRoute>} />
+          <Route path="/setup"        element={<ProtectedRoute><PageTransition><Layout><InterviewSetupPage /></Layout></PageTransition></ProtectedRoute>} />
+          <Route path="/interview/:id" element={<ProtectedRoute><PageTransition><InterviewRoomPage /></PageTransition></ProtectedRoute>} />
+          <Route path="/results/:id"  element={<ProtectedRoute><PageTransition><Layout><ResultsPage /></Layout></PageTransition></ProtectedRoute>} />
+          <Route path="/dashboard"    element={<ProtectedRoute><PageTransition><Layout><StudentDashboard /></Layout></PageTransition></ProtectedRoute>} />
+          <Route path="/admin"        element={<ProtectedRoute adminOnly><PageTransition><Layout><AdminDashboard /></Layout></PageTransition></ProtectedRoute>} />
+          <Route path="/leaderboard"  element={<ProtectedRoute><PageTransition><Layout><LeaderboardPage /></Layout></PageTransition></ProtectedRoute>} />
+          <Route path="*"             element={<Navigate to="/" replace />} />
+        </Routes>
+      </AnimatePresence>
+    </>
   );
 };
 
@@ -61,7 +76,8 @@ function ToastWrapper() {
           background: isDark ? '#1a1a1a' : '#ffffff',
           color: isDark ? '#e5e5e5' : '#1a1410',
           border: `1px solid ${isDark ? 'rgba(249,115,22,0.3)' : 'rgba(234,88,12,0.25)'}`,
-          fontFamily: 'Exo 2, sans-serif',
+          fontFamily: 'Outfit, sans-serif',
+          fontWeight: 600,
           fontSize: 14,
           boxShadow: isDark ? '0 4px 20px rgba(0,0,0,0.5)' : '0 4px 20px rgba(0,0,0,0.1)',
         },

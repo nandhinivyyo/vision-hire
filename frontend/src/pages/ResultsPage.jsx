@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Radar } from 'react-chartjs-2';
 import { Chart as ChartJS, RadialLinearScale, PointElement, LineElement, Filler, Tooltip, Legend } from 'chart.js';
 import axios from 'axios';
+import html2pdf from 'html2pdf.js';
 
 ChartJS.register(RadialLinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -23,7 +24,7 @@ const ScoreRing = ({ score, size = 90, label }) => {
           transition={{ duration: 1.5, ease: 'easeOut' }}
           style={{ transform:'rotate(-90deg)', transformOrigin:'50% 50%' }}/>
         <text x="50%" y="50%" dominantBaseline="middle" textAnchor="middle"
-          fill={color} fontSize="17" fontFamily="Rajdhani" fontWeight="bold">{score}</text>
+          fill={color} fontSize="17" fontFamily="Outfit" fontWeight="bold">{score}</text>
       </svg>
       <span style={{ color:'var(--t4)', fontSize:11, fontFamily:'JetBrains Mono', textAlign:'center', lineHeight:1.3 }}>{label}</span>
     </div>
@@ -47,6 +48,81 @@ const AnswerGuide = ({ data, questions, expandedQ, setExpandedQ }) => {
     }));
   }, [data, questions]);
 
+  const exportPDF = () => {
+    const studentName = data?.student?.name || 'Candidate';
+    const dateStr = data?.createdAt ? new Date(data.createdAt).toLocaleDateString() : new Date().toLocaleDateString();
+    const dateForFile = dateStr.replace(/\//g, '-');
+    const element = document.createElement('div');
+    element.innerHTML = `
+      <div style="font-family: Arial, sans-serif; color: #000; padding: 20px;">
+        <h1 style="text-align: center; color: #333;">Interview Answer Guide</h1>
+        <p style="text-align: center; color: #666; font-style: italic; margin-bottom: 20px;">Attended by: ${studentName} &nbsp;|&nbsp; Date: ${dateStr}</p>
+        <hr/>
+        ${items.map((item, i) => `
+          <div style="margin-bottom: 20px; page-break-inside: avoid;">
+            <h3>Q${i + 1}: ${item.question}</h3>
+            <p><strong>Your Answer:</strong> ${item.candidateAnswer || 'No answer provided'}</p>
+            <p><strong>Score:</strong> ${item.score}/100</p>
+            <p style="color: green;"><strong>What You Got Right:</strong> ${item.whatWentWell || 'You covered the main concept.'}</p>
+            <p style="color: #b8860b;"><strong>What Was Missing:</strong> ${item.whatWasMissing || 'Add more specific examples and technical depth to score higher.'}</p>
+            <div style="background-color: #f9f9f9; padding: 10px; border-left: 4px solid #007bff; margin-top: 10px;">
+              <p><strong>Ideal Answer:</strong></p>
+              <p>${item.idealAnswer}</p>
+            </div>
+            <p><strong>Practice Prompt:</strong> <em>${item.practicePrompt || item.question}</em></p>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    const opt = {
+      margin:       [0.5, 0.5, 0.5, 0.5],
+      filename:     `Answer_Guide_${studentName.replace(/\s+/g, '_')}_${dateForFile}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2 },
+      jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+    };
+    html2pdf().set(opt).from(element).save();
+  };
+
+  const exportWord = () => {
+    const studentName = data?.student?.name || 'Candidate';
+    const dateStr = data?.createdAt ? new Date(data.createdAt).toLocaleDateString() : new Date().toLocaleDateString();
+    const dateForFile = dateStr.replace(/\//g, '-');
+    const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Answer Guide</title></head><body>";
+    const footer = "</body></html>";
+    const body = `
+      <div style="font-family: Arial, sans-serif; color: #000;">
+        <h1 style="text-align: center;">Interview Answer Guide</h1>
+        <p style="text-align: center; color: #666; font-style: italic; margin-bottom: 20px;">Attended by: ${studentName} &nbsp;|&nbsp; Date: ${dateStr}</p>
+        <hr/>
+        ${items.map((item, i) => `
+          <div style="margin-bottom: 20px;">
+            <h3>Q${i + 1}: ${item.question}</h3>
+            <p><strong>Your Answer:</strong> ${item.candidateAnswer || 'No answer provided'}</p>
+            <p><strong>Score:</strong> ${item.score}/100</p>
+            <p style="color: green;"><strong>What You Got Right:</strong> ${item.whatWentWell || 'You covered the main concept.'}</p>
+            <p style="color: #b8860b;"><strong>What Was Missing:</strong> ${item.whatWasMissing || 'Add more specific examples and technical depth to score higher.'}</p>
+            <div style="background-color: #f9f9f9; padding: 10px; border: 1px solid #ccc;">
+              <p><strong>Ideal Answer:</strong></p>
+              <p>${item.idealAnswer}</p>
+            </div>
+            <p><strong>Practice Prompt:</strong> <em>${item.practicePrompt || item.question}</em></p>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    const sourceHTML = header + body + footer;
+    
+    const source = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(sourceHTML);
+    const fileDownload = document.createElement("a");
+    document.body.appendChild(fileDownload);
+    fileDownload.href = source;
+    fileDownload.download = `Answer_Guide_${studentName.replace(/\s+/g, '_')}_${dateForFile}.doc`;
+    fileDownload.click();
+    document.body.removeChild(fileDownload);
+  };
+
   const speak = (text) => {
     if (!text || !window.speechSynthesis) return;
     window.speechSynthesis.cancel();
@@ -61,21 +137,31 @@ const AnswerGuide = ({ data, questions, expandedQ, setExpandedQ }) => {
   if (!items.length) return (
     <div style={{ textAlign:'center', padding:'48px 24px' }}>
       <div style={{ fontSize:40, marginBottom:12 }}>📭</div>
-      <p style={{ color:'var(--t3)', fontFamily:'Rajdhani', fontSize:18 }}>No answers recorded yet.</p>
+      <p style={{ color:'var(--t3)', fontFamily:'Outfit', fontSize:18 }}>No answers recorded yet.</p>
     </div>
   );
 
   return (
     <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }}>
       {/* Header card */}
-      <div style={{ background:'var(--od)', border:'1px solid var(--border)', borderRadius:12, padding:'14px 18px', marginBottom:20, display:'flex', alignItems:'center', gap:12 }}>
-        <span style={{ fontSize:24 }}>📚</span>
-        <div>
-          <p style={{ color:'var(--o)', fontFamily:'JetBrains Mono', fontSize:11, letterSpacing:2, marginBottom:3 }}>ANSWER GUIDE — STUDY & PRACTICE</p>
-          <p style={{ color:'var(--t3)', fontSize:13 }}>
-            Click any question to see what you got right, what was missing, and the ideal answer to memorise.
-            Use the <strong style={{ color:'var(--t2)' }}>🔊 Listen</strong> button to hear model answers spoken aloud.
-          </p>
+      <div style={{ background:'var(--od)', border:'1px solid var(--border)', borderRadius:12, padding:'14px 18px', marginBottom:20, display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:12, flex:1, minWidth:250 }}>
+          <span style={{ fontSize:24 }}>📚</span>
+          <div>
+            <p style={{ color:'var(--o)', fontFamily:'JetBrains Mono', fontSize:11, letterSpacing:2, marginBottom:3 }}>ANSWER GUIDE — STUDY & PRACTICE</p>
+            <p style={{ color:'var(--t3)', fontSize:13 }}>
+              Click any question to see what you got right, what was missing, and the ideal answer to memorise.
+              Use the <strong style={{ color:'var(--t2)' }}>🔊 Listen</strong> button to hear model answers spoken aloud.
+            </p>
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:8, flexShrink:0, alignSelf:'center' }}>
+          <button onClick={exportPDF} style={{ background:'var(--card)', border:'1px solid var(--border)', padding:'8px 14px', borderRadius:8, color:'var(--t2)', fontSize:13, fontFamily:'Outfit', fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:6, transition:'background .2s' }} onMouseEnter={e => e.currentTarget.style.background='var(--card2)'} onMouseLeave={e => e.currentTarget.style.background='var(--card)'}>
+            📄 Download PDF
+          </button>
+          <button onClick={exportWord} style={{ background:'var(--card)', border:'1px solid var(--border)', padding:'8px 14px', borderRadius:8, color:'var(--t2)', fontSize:13, fontFamily:'Outfit', fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:6, transition:'background .2s' }} onMouseEnter={e => e.currentTarget.style.background='var(--card2)'} onMouseLeave={e => e.currentTarget.style.background='var(--card)'}>
+            📝 Download Word
+          </button>
         </div>
       </div>
 
@@ -95,7 +181,7 @@ const AnswerGuide = ({ data, questions, expandedQ, setExpandedQ }) => {
                 onMouseLeave={e => e.currentTarget.style.background='transparent'}>
                 {/* Circle score */}
                 <div style={{ width:42, height:42, borderRadius:'50%', border:`2px solid ${scoreColor}`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, background:`${scoreColor}15` }}>
-                  <span style={{ fontFamily:'Rajdhani', fontWeight:700, fontSize:14, color:scoreColor }}>{score}</span>
+                  <span style={{ fontFamily:'Outfit', fontWeight:700, fontSize:14, color:scoreColor }}>{score}</span>
                 </div>
                 <div style={{ flex:1, minWidth:0 }}>
                   <p style={{ color:'var(--t)', fontSize:14, fontWeight:500, marginBottom:2, lineHeight:1.4 }}>{item.question}</p>
@@ -207,7 +293,7 @@ export default function ResultsPage() {
   );
 
   if (!data) return (
-    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t4)', fontFamily:'Exo 2' }}>
+    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t4)', fontFamily:'Inter' }}>
       Results not found
     </div>
   );
@@ -242,7 +328,7 @@ export default function ResultsPage() {
       ticks: { color:'var(--t4)', backdropColor:'transparent', stepSize:20 },
       grid: { color:'rgba(128,128,128,0.15)' },
       angleLines: { color:'rgba(128,128,128,0.15)' },
-      pointLabels: { color:'var(--t3)', font:{ family:'Exo 2', size:11 } }
+      pointLabels: { color:'var(--t3)', font:{ family:'Inter', size:11 } }
     }},
     plugins: { legend: { display:false } },
   };
@@ -258,7 +344,7 @@ export default function ResultsPage() {
           <p style={{ color:'rgba(249,115,22,0.55)', fontFamily:'JetBrains Mono', fontSize:10, letterSpacing:4, marginBottom:8 }}>INTERVIEW COMPLETE</p>
           <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
             <div>
-              <h1 style={{ fontFamily:'Rajdhani', fontWeight:700, fontSize:'clamp(32px,6vw,52px)', color:'var(--t)', marginBottom:4, lineHeight:1 }}>
+              <h1 style={{ fontFamily:'Outfit', fontWeight:700, fontSize:'clamp(32px,6vw,52px)', color:'var(--t)', marginBottom:4, lineHeight:1 }}>
                 Your <span style={{ color:'var(--o)' }}>Results</span>
               </h1>
               <p style={{ color:'var(--t4)', fontSize:13, textTransform:'capitalize' }}>
@@ -267,7 +353,7 @@ export default function ResultsPage() {
             </div>
             <motion.div initial={{ scale:0 }} animate={{ scale:1 }} transition={{ delay:0.5, type:'spring' }}
               style={{ textAlign:'right' }}>
-              <div style={{ fontFamily:'Rajdhani', fontWeight:700, fontSize:'clamp(56px,10vw,80px)', color:overallColor, lineHeight:1 }}>{overall}</div>
+              <div style={{ fontFamily:'Outfit', fontWeight:700, fontSize:'clamp(56px,10vw,80px)', color:overallColor, lineHeight:1 }}>{overall}</div>
               <p style={{ color:'var(--t4)', fontSize:12, fontFamily:'JetBrains Mono' }}>/ 100</p>
             </motion.div>
           </div>
@@ -277,7 +363,7 @@ export default function ResultsPage() {
         <div style={{ display:'flex', gap:4, background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:4, marginBottom:24, width:'fit-content', flexWrap:'wrap' }}>
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(t)}
-              style={{ padding:'9px 18px', borderRadius:9, fontFamily:'Rajdhani', fontWeight:700, fontSize:13, letterSpacing:1, textTransform:'capitalize', cursor:'pointer', transition:'all .2s', border:'none',
+              style={{ padding:'9px 18px', borderRadius:9, fontFamily:'Outfit', fontWeight:700, fontSize:13, letterSpacing:1, textTransform:'capitalize', cursor:'pointer', transition:'all .2s', border:'none',
                 background: tab === t ? 'var(--o)' : 'transparent',
                 color:       tab === t ? '#fff'    : 'var(--t3)',
               }}>
@@ -348,7 +434,7 @@ export default function ResultsPage() {
               <div key={i} className="glass-card" style={{ padding:22 }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
                   <span style={{ color:'rgba(249,115,22,0.55)', fontFamily:'JetBrains Mono', fontSize:10, letterSpacing:2 }}>Q{i+1}</span>
-                  <span style={{ fontFamily:'Rajdhani', fontWeight:700, fontSize:20, color: q.score >= 70 ? 'var(--score-green)' : q.score >= 40 ? 'var(--score-yellow)' : 'var(--score-red)' }}>
+                  <span style={{ fontFamily:'Outfit', fontWeight:700, fontSize:20, color: q.score >= 70 ? 'var(--score-green)' : q.score >= 40 ? 'var(--score-yellow)' : 'var(--score-red)' }}>
                     {q.score}<span style={{ color:'var(--t4)', fontSize:12, fontFamily:'JetBrains Mono' }}>/100</span>
                   </span>
                 </div>
@@ -384,7 +470,7 @@ export default function ResultsPage() {
             {skillGaps.length === 0 ? (
               <div className="glass-card" style={{ padding:'48px 24px', textAlign:'center' }}>
                 <div style={{ fontSize:40, marginBottom:12 }}>🎉</div>
-                <p style={{ fontFamily:'Rajdhani', fontWeight:700, fontSize:22, color:'var(--t)', marginBottom:8 }}>No Major Gaps Found</p>
+                <p style={{ fontFamily:'Outfit', fontWeight:700, fontSize:22, color:'var(--t)', marginBottom:8 }}>No Major Gaps Found</p>
                 <p style={{ color:'var(--t3)' }}>Great performance! Keep practicing to stay sharp.</p>
               </div>
             ) : (
@@ -393,7 +479,7 @@ export default function ResultsPage() {
                   <motion.div key={i} initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ delay:i*0.1 }}
                     className="glass-card" style={{ padding:22 }}>
                     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-                      <h3 style={{ fontFamily:'Rajdhani', fontWeight:700, fontSize:18, color:'var(--t)' }}>{g.topic}</h3>
+                      <h3 style={{ fontFamily:'Outfit', fontWeight:700, fontSize:18, color:'var(--t)' }}>{g.topic}</h3>
                       <span style={{ fontSize:11, fontFamily:'JetBrains Mono', padding:'2px 8px', borderRadius:4, textTransform:'capitalize', background:`${severityColor[g.severity]}20`, color:severityColor[g.severity], border:`1px solid ${severityColor[g.severity]}40` }}>
                         {g.severity}
                       </span>
@@ -425,11 +511,11 @@ export default function ResultsPage() {
             Practice Again
           </button>
           <button onClick={() => setTab('answer guide')}
-            style={{ padding:'12px 28px', borderRadius:12, fontFamily:'Rajdhani', fontWeight:700, fontSize:14, letterSpacing:1, border:'1px solid var(--border)', background:'var(--od)', color:'var(--o)', cursor:'pointer', transition:'all .2s' }}>
+            style={{ padding:'12px 28px', borderRadius:12, fontFamily:'Outfit', fontWeight:700, fontSize:14, letterSpacing:1, border:'1px solid var(--border)', background:'var(--od)', color:'var(--o)', cursor:'pointer', transition:'all .2s' }}>
             📚 Study Answer Guide
           </button>
           <button onClick={() => navigate('/dashboard')}
-            style={{ padding:'12px 28px', borderRadius:12, fontFamily:'Rajdhani', fontWeight:700, fontSize:14, letterSpacing:1, border:'1px solid var(--border)', background:'transparent', color:'var(--t3)', cursor:'pointer', transition:'all .2s' }}>
+            style={{ padding:'12px 28px', borderRadius:12, fontFamily:'Outfit', fontWeight:700, fontSize:14, letterSpacing:1, border:'1px solid var(--border)', background:'transparent', color:'var(--t3)', cursor:'pointer', transition:'all .2s' }}>
             Dashboard
           </button>
         </motion.div>

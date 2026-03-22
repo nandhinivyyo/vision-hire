@@ -30,9 +30,6 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (data) => {
     const res = await axios.post('/api/auth/register', data);
-    localStorage.setItem('visionhire_token', res.data.token);
-    axios.defaults.headers.common['Authorization'] = `Bearer ${res.data.token}`;
-    setUser(res.data);
     return res.data;
   };
 
@@ -43,7 +40,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, setUser, loading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,39 +1,42 @@
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Exo+2:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 /* ═══════════════════════════════════════════════
    THEME VARIABLES
 ═══════════════════════════════════════════════ */
 :root, [data-theme="dark"] {
-  --o: #f97316;
-  --o2: #ea580c;
-  --og: rgba(249,115,22,0.45);
-  --od: rgba(249,115,22,0.12);
+  --o: #FF6A00;
+  --o2: #FF8C42;
+  --og: rgba(255, 106, 0, 0.45);
+  --od: rgba(255, 106, 0, 0.12);
 
-  --bg:       #080808;
-  --bg2:      #111111;
-  --bg3:      #1a1a1a;
-  --bg4:      #222222;
+  --bg:       #0B0F19; /* Deep navy/black */
+  --bg2:      #111827; 
+  --bg3:      #1F2937;
+  --bg4:      #374151;
 
-  --card:     rgba(255,255,255,0.03);
-  --card2:    rgba(255,255,255,0.06);
-  --border:   rgba(249,115,22,0.2);
-  --border2:  rgba(255,255,255,0.07);
+  --card:     rgba(17, 24, 39, 0.6); /* Translucent dark for glassmorphism */
+  --card2:    rgba(31, 41, 55, 0.5);
+  --border:   rgba(255, 255, 255, 0.05); /* Soft border instead of harsh orange */
+  --border2:  rgba(255, 255, 255, 0.03);
 
   --t:        #f1f1f1;
-  --t2:       rgba(255,255,255,0.65);
-  --t3:       rgba(255,255,255,0.4);
-  --t4:       rgba(255,255,255,0.25);
+  --t2:       rgba(255,255,255,0.7);
+  --t3:       rgba(255,255,255,0.45);
+  --t4:       rgba(255,255,255,0.3);
 
   --input-bg: rgba(255,255,255,0.04);
   --input-border: rgba(249,115,22,0.2);
   --input-text: #f1f1f1;
   --placeholder: #555;
 
-  --nav-bg:   rgba(8,8,8,0.88);
-  --grid-line: rgba(249,115,22,0.04);
+  --nav-bg:   rgba(11, 15, 25, 0.88);
+  --grid-line: rgba(255, 106, 0, 0.03);
 
-  --shadow: 0 4px 24px rgba(0,0,0,0.5);
-  --shadow-card: 0 2px 12px rgba(0,0,0,0.4);
+  --shadow: 0 8px 32px rgba(0,0,0,0.5);
+  --shadow-card: 0 4px 24px rgba(0,0,0,0.3);
 
   --score-green: #22c55e;
   --score-yellow: #eab308;
@@ -86,17 +89,65 @@ html { scroll-behavior: smooth; }
 body {
   background: var(--bg);
   color: var(--t);
-  font-family: 'Exo 2', sans-serif;
+  font-family: 'Inter', sans-serif;
   overflow-x: hidden;
   min-height: 100vh;
   transition: background 0.3s ease, color 0.3s ease;
 }
 
-h1,h2,h3,h4,h5,h6 { font-family: 'Rajdhani', sans-serif; }
+h1,h2,h3,h4,h5,h6 { font-family: 'Outfit', sans-serif; }
 
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: var(--bg2); }
-::-webkit-scrollbar-thumb { background: var(--o); border-radius: 3px; }
+body::before {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0; height: 100vh;
+  /* Reduced opacity for a cleaner look */
+  background: radial-gradient(circle at 50% 0%, var(--od) 0%, transparent 60%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Custom Lean Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 106, 0, 0.4);
+}
+
+/* Skeleton Loading Shimmer */
+.skeleton-shimmer {
+  background: linear-gradient(90deg, var(--card) 25%, var(--card2) 50%, var(--card) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  bottom: -20%;
+  right: -10%;
+  width: 50vw;
+  height: 50vw;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.03) 0%, transparent 50%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+
 
 /* ═══════════════════════════════════════════════
    COMPONENT CLASSES (theme-aware)
@@ -492,12 +543,12 @@ select.input-dark option { background: var(--bg3); color: var(--t); }
   .grid-cols-4 { grid-template-columns:repeat(2,1fr); }
 }
 
-/* ─── FIX: browser autofill overrides in light mode ─── */
+/* ─── FIX: browser autofill overrides ─── */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus,
 input:-webkit-autofill:active {
-  -webkit-box-shadow: 0 0 0 1000px var(--input-bg) inset !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--bg3) inset !important;
   -webkit-text-fill-color: var(--input-text) !important;
   caret-color: var(--input-text);
   transition: background-color 9999s ease-in-out 0s;

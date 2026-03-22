@@ -11,10 +11,10 @@ const generateCode = () => Math.random().toString(36).substring(2, 8).toUpperCas
 router.post('/create', protect, adminOnly, async (req, res) => {
   try {
     const {
-      title, description, type, difficulty,
+      title, description, type, topic, difficulty,
       targetDepartment, targetYear, maxParticipants,
       scheduledAt, endsAt, durationMinutes,
-      customQuestions
+      customQuestions, requireVoice, requireVideo, requireCodeEditor
     } = req.body;
 
     const start = scheduledAt ? new Date(scheduledAt) : null;
@@ -24,12 +24,13 @@ router.post('/create', protect, adminOnly, async (req, res) => {
       : (endsAt ? new Date(endsAt) : null);
 
     const session = await Session.create({
-      title, description, type, difficulty,
+      title, description, type, topic, difficulty,
       targetDepartment, targetYear, maxParticipants,
       scheduledAt: start,
       endsAt: computedEndsAt,
       durationMinutes: durMin || 30,
       customQuestions,
+      requireVoice, requireVideo, requireCodeEditor,
       createdBy: req.user._id,
       sessionCode: generateCode()
     });
@@ -94,6 +95,71 @@ router.patch('/:id/toggle', protect, adminOnly, async (req, res) => {
     session.isActive = !session.isActive;
     await session.save();
     res.json(session);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/sessions/my-sessions (admin)
+router.get('/my-sessions', protect, adminOnly, async (req, res) => {
+  try {
+    const sessions = await Session.find({ createdBy: req.user._id }).sort({ createdAt: -1 });
+    res.json(sessions);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// PUT /api/sessions/:id (admin)
+router.put('/:id', protect, adminOnly, async (req, res) => {
+  try {
+    const session = await Session.findById(req.params.id);
+    if (!session) return res.status(404).json({ message: 'Session not found' });
+
+    const {
+      title, description, type, topic, difficulty,
+      targetDepartment, targetYear, maxParticipants,
+      scheduledAt, endsAt, durationMinutes,
+      customQuestions, requireVoice, requireVideo, requireCodeEditor
+    } = req.body;
+
+    const start = scheduledAt !== undefined ? (scheduledAt ? new Date(scheduledAt) : null) : session.scheduledAt;
+    const durMin = durationMinutes !== undefined ? Number(durationMinutes) : session.durationMinutes;
+    const computedEndsAt = (!endsAt && start && durMin && durMin > 0)
+      ? new Date(start.getTime() + durMin * 60 * 1000)
+      : (endsAt !== undefined ? (endsAt ? new Date(endsAt) : null) : session.endsAt);
+
+    session.title = title || session.title;
+    session.description = description !== undefined ? description : session.description;
+    session.type = type || session.type;
+    session.topic = session.type === 'topic' ? (topic !== undefined ? topic : session.topic) : null;
+    session.difficulty = difficulty || session.difficulty;
+    session.targetDepartment = targetDepartment || session.targetDepartment;
+    session.targetYear = targetYear || session.targetYear;
+    session.maxParticipants = maxParticipants || session.maxParticipants;
+    session.scheduledAt = start;
+    session.endsAt = computedEndsAt;
+    session.durationMinutes = durMin;
+    if (customQuestions) session.customQuestions = customQuestions;
+    if (requireVoice !== undefined) session.requireVoice = requireVoice;
+    if (requireVideo !== undefined) session.requireVideo = requireVideo;
+    if (requireCodeEditor !== undefined) session.requireCodeEditor = requireCodeEditor;
+
+    await session.save();
+    res.json(session);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// DELETE /api/sessions/:id (admin)
+router.delete('/:id', protect, adminOnly, async (req, res) => {
+  try {
+    const session = await Session.findById(req.params.id);
+    if (!session) return res.status(404).json({ message: 'Session not found' });
+
+    await Session.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Session deleted' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

@@ -24,7 +24,7 @@ export default function EntryPage() {
       const res = await axios.post('/api/sessions/join', { sessionCode: sessionCode.trim().toUpperCase() });
       toast.success(`Joined: ${res.data.title}`);
       // Admin/staff sessions are locked to the session's criteria
-      navigate('/setup', { state: { sessionId: res.data._id, mode: 'admin_controlled', type: res.data.type, difficulty: res.data.difficulty } });
+      navigate('/setup', { state: { sessionId: res.data._id, mode: 'admin_controlled', type: res.data.type, difficulty: res.data.difficulty, sessionDefaults: res.data } });
     } catch (err) {
       toast.error(err.response?.data?.message || 'Session not found');
     } finally { setJoining(false); }

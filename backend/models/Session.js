@@ -5,7 +5,8 @@ const sessionSchema = new mongoose.Schema({
   description: { type: String, default: '' },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   sessionCode: { type: String, required: true, unique: true },
-  type: { type: String, enum: ['technical', 'hr', 'mixed'], required: true },
+  type: { type: String, enum: ['technical', 'hr', 'mixed', 'topic'], required: true },
+  topic: { type: String, default: null },
   difficulty: { type: String, enum: ['easy', 'medium', 'hard'], required: true },
   targetDepartment: { type: String, default: 'all' },
   targetYear: { type: String, default: 'all' },
@@ -16,6 +17,9 @@ const sessionSchema = new mongoose.Schema({
   scheduledAt: { type: Date },
   endsAt: { type: Date },
   durationMinutes: { type: Number, default: 30 },
+  requireVoice: { type: Boolean, default: false },
+  requireVideo: { type: Boolean, default: false },
+  requireCodeEditor: { type: Boolean, default: false },
   customQuestions: [String]
 }, { timestamps: true });
 

@@ -4,27 +4,29 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        orange: {
-          400: '#fb923c',
-          500: '#f97316',
-          600: '#ea580c',
+        brand: {
+          orange: '#FF6A00',
+          orangeGlow: '#FF8C42',
+          blue: '#3B82F6',
         },
         dark: {
-          900: '#080808',
-          800: '#111111',
-          700: '#1a1a1a',
-          600: '#222222',
-          500: '#2d2d2d',
+          900: '#0B0F19',
+          800: '#111827',
+          700: '#1F2937',
+          600: '#374151',
+          500: '#4B5563',
         }
       },
       fontFamily: {
-        display: ['Rajdhani', 'sans-serif'],
-        body: ['Exo 2', 'sans-serif'],
+        display: ['Outfit', 'sans-serif'],
+        body: ['Inter', 'sans-serif'],
+        sans: ['Inter', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
       },
       animation: {
         'pulse-glow': 'pulseGlow 2s ease-in-out infinite',
         'scan-line': 'scanLine 3s linear infinite',
+        'shimmer': 'shimmer 2.5s linear infinite',
       },
       keyframes: {
         pulseGlow: {
@@ -34,6 +36,10 @@ module.exports = {
         scanLine: {
           '0%': { transform: 'translateY(-100%)' },
           '100%': { transform: 'translateY(100vh)' },
+        },
+        shimmer: {
+          '0%': { backgroundPosition: '200% 0' },
+          '100%': { backgroundPosition: '-200% 0' },
         }
       }
     },

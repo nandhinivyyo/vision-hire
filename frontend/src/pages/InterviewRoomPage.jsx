@@ -5,9 +5,10 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { Editor } from '@monaco-editor/react';
 
-// Suppress benign Monaco Editor ResizeObserver errors in development
+// Suppress benign Monaco Editor ResizeObserver and cross-origin Script errors in development
 window.addEventListener('error', e => {
-  if (e.message && e.message.includes('ResizeObserver')) {
+  if (e.message && (e.message.includes('ResizeObserver') || e.message === 'Script error.')) {
+    e.preventDefault();
     e.stopImmediatePropagation();
   }
 });
@@ -41,6 +42,11 @@ export default function InterviewRoomPage() {
   const multipleFacesFramesRef = useRef(0);
   const multipleFaceWarningsRef = useRef(0);
   const lastMultipleFaceCalloutRef = useRef(0);
+
+  // ── Gadget detection refs ──
+  const gadgetFramesRef = useRef(0);
+  const gadgetWarningsRef = useRef(0);
+  const lastGadgetCalloutRef = useRef(0);
 
   // ── Real video state ──
   const [camStatus, setCamStatus]       = useState('idle'); // idle | requesting | active | denied | nosupport
@@ -262,10 +268,13 @@ export default function InterviewRoomPage() {
       // Load BlazeFace model
       await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js');
       if (cancelled) return;
+      // Load COCO-SSD as a highly robust fallback for detecting multiple people
+      await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js');
+      if (cancelled) return;
       setTfReady(true);
     };
 
-    loadScripts().catch(() => {
+    loadScripts().catch((err) => {
       // TF failed to load — use brightness-based fallback
       setTfReady('fallback');
     });
@@ -277,8 +286,10 @@ export default function InterviewRoomPage() {
     return new Promise((resolve, reject) => {
       if (document.querySelector(`script[src="${src}"]`)) return resolve();
       const s = document.createElement('script');
-      s.src = src; s.async = true;
-      s.onload = resolve; s.onerror = reject;
+      s.src = src; s.async = true; 
+      // Removed crossOrigin='anonymous' because it caused CORS blocking in some environments leading to silent ML failure
+      s.onload = resolve; 
+      s.onerror = (err) => reject(new Error(`Failed to load ${src}`));
       document.head.appendChild(s);
     });
   }
@@ -335,43 +346,120 @@ export default function InterviewRoomPage() {
   // ── BlazeFace face detection loop ──
   const startBlazeFaceLoop = async () => {
     try {
-      const model = await window.blazeface.load();
+      // Lower scoreThreshold to 0.5 (default 0.75) to be more sensitive to secondary faces in the background that might be blurry or poorly lit
+      const model = await window.blazeface.load({ maxFaces: 10, scoreThreshold: 0.5 });
       detectorRef.current = model;
+      
+      let personModel = null;
+      try {
+        if (window.cocoSsd) personModel = await window.cocoSsd.load();
+      } catch (e) { console.warn("Coco-SSD fallback failed to load"); }
 
       detectionLoop.current = setInterval(async () => {
         if (!videoRef.current || videoRef.current.readyState < 2) return;
         try {
           const predictions = await model.estimateFaces(videoRef.current, false);
           
+          let faceCount = predictions?.length || 0;
+          let gadgetDetected = false;
+          let detectedGadgetName = '';
+          
+          if (personModel) {
+            try {
+              const objPredictions = await personModel.detect(videoRef.current);
+              
+              // 1. Detect multiple people (fallback if BlazeFace misses)
+              const people = objPredictions.filter(p => p.class === 'person' && p.score > 0.25);
+              faceCount = Math.max(faceCount, people.length);
+              
+              // 2. Detect unauthorized gadgets
+              const gadgets = objPredictions.filter(p => ['cell phone', 'laptop', 'tablet', 'tv', 'remote'].includes(p.class) && p.score > 0.25);
+              if (gadgets.length > 0) {
+                gadgetDetected = true;
+                detectedGadgetName = gadgets[0].class === 'tv' ? 'monitor/pc' : gadgets[0].class;
+              }
+            } catch (err) { console.error("cocoSsd obj detection error:", err); }
+          }
+          
+          let isMultiple = false;
           // FEATURE: Multiple Face Detection Anti-Cheat
-          if (predictions.length > 1) {
+          if (faceCount > 1) {
+            isMultiple = true;
             multipleFacesFramesRef.current += 1;
+            
+            // IMMEDIATE SOFT WARNING (Visual ONLY)
+            setWarning('⚠️ Multiple faces detected. Please ensure you are alone.');
+            
             if (multipleFacesFramesRef.current >= 4) { // ~2 seconds of continuous multiple faces
               const now = Date.now();
               if (now - lastMultipleFaceCalloutRef.current > 10000) {
                 multipleFaceWarningsRef.current += 1;
                 lastMultipleFaceCalloutRef.current = now;
                 
-                if (multipleFaceWarningsRef.current === 1) {
-                  setWarning('⚠️ Anti-Cheat: Multiple people detected in frame!');
-                  toast.error('First Warning: Please ensure you are alone.');
+                const warnings = multipleFaceWarningsRef.current;
+                const left = 2 - warnings;
+                
+                if (left > 0) {
+                  setWarning(`⚠️ Multiple Faces ${warnings}/2: Please ensure you are alone.`);
+                  toast.error(`Warning ${warnings}/2: Multiple people detected.`);
                   if (speakHrRef.current) speakHrRef.current("Warning. I see multiple people in the camera frame. Please ensure you are alone for the test.");
                 } else {
-                  setWarning('⚠️ Anti-Cheat: Test Terminated (Multiple Faces).');
+                  setWarning('❌ Multiple faces detected 2 times. Interview auto-ended.');
                   toast.error('Terminating test due to multiple faces.');
                   if (speakHrRef.current) speakHrRef.current("Multiple people detected again. Automatically submitting your test now.");
                   autoEndedRef.current = true;
                   if (finishInterviewRef.current) finishInterviewRef.current();
                 }
+              } else if (!autoEndedRef.current) {
+                // Keep the warning on screen if we are in cooldown and they are still violating it
+                setWarning(`⚠️ Multiple faces detected. Please ensure you are alone.`);
               }
             }
           } else {
-            multipleFacesFramesRef.current = 0;
+            // Smoothly degrade frame count instead of instant reset to handle jumpy ML detections
+            multipleFacesFramesRef.current = Math.max(0, multipleFacesFramesRef.current - 1);
           }
-          processDetection(predictions.length > 0, predictions[0]);
+
+          // FEATURE: Gadget Detection Anti-Cheat
+          if (gadgetDetected && !isMultiple) {
+            gadgetFramesRef.current += 1;
+            
+            // IMMEDIATE SOFT WARNING
+            setWarning(`⚠️ Unauthorized device detected (${detectedGadgetName}). Please remove it immediately.`);
+            
+            if (gadgetFramesRef.current >= 4) { // ~2 seconds of continuous detection
+              const now = Date.now();
+              if (now - lastGadgetCalloutRef.current > 10000) {
+                gadgetWarningsRef.current += 1;
+                lastGadgetCalloutRef.current = now;
+                
+                const warnings = gadgetWarningsRef.current;
+                const left = 2 - warnings;
+                
+                if (left > 0) {
+                  setWarning(`⚠️ Device Warning ${warnings}/2: ${detectedGadgetName} detected. Next time, your test will be terminated.`);
+                  toast.error(`Warning ${warnings}/2: Unauthorized device detected.`);
+                  if (speakHrRef.current) speakHrRef.current(`Warning. I have detected an unauthorized device, likely a ${detectedGadgetName}. Please remove it. The next time, your test will be automatically submitted.`);
+                } else {
+                  setWarning('❌ Unauthorized device detected 2 times. Interview auto-ended.');
+                  toast.error('Terminating test due to unauthorized device.');
+                  if (speakHrRef.current) speakHrRef.current(`Device detected again. Automatically submitting your test now.`);
+                  autoEndedRef.current = true;
+                  if (finishInterviewRef.current) finishInterviewRef.current();
+                }
+              } else if (!autoEndedRef.current) {
+                setWarning(`⚠️ Unauthorized device detected (${detectedGadgetName}). Please remove it immediately.`);
+              }
+            }
+          } else {
+            gadgetFramesRef.current = Math.max(0, gadgetFramesRef.current - 1);
+          }
+
+          processDetection(predictions.length > 0, predictions[0], isMultiple);
         } catch { /* ignore frame errors */ }
       }, 500); // run every 500ms
-    } catch {
+    } catch (err) {
+      console.warn("BlazeFace loop failed:", err);
       startBrightnessLoop();
     }
   };
@@ -414,7 +502,7 @@ export default function InterviewRoomPage() {
   };
 
   // ── Process detection result into scores ──
-  const processDetection = (detected, prediction) => {
+  const processDetection = (detected, prediction, isMultiple = false) => {
     frameCount.current++;
     if (detected) faceFrames.current++;
 
@@ -422,8 +510,13 @@ export default function InterviewRoomPage() {
     const presence = Math.round((faceFrames.current / frameCount.current) * 100);
     setFacePresence(presence);
 
+    if (!detected) {
+      setWarning('⚠️ Face not securely detected. Please adjust lighting or posture.');
+    } else if (!isMultiple) {
+      setWarning(prev => (prev && !prev.includes('auto-ended')) ? '' : prev);
+    }
+
     if (detected) {
-      setWarning('');
 
       // Eye contact: use face position relative to center (if we have BlazeFace data)
       let eyeVal = 0;
@@ -777,7 +870,7 @@ export default function InterviewRoomPage() {
               onClick={e => e.stopPropagation()}
               style={{ background:'var(--bg2)', border:'1px solid rgba(249,115,22,0.35)', borderRadius:16, padding:'32px 28px', maxWidth:400, width:'100%', boxShadow:'0 24px 60px rgba(0,0,0,0.5)', textAlign:'center' }}>
               <div style={{ width:56, height:56, borderRadius:'50%', background:'rgba(239,68,68,0.12)', border:'2px solid rgba(239,68,68,0.35)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px', fontSize:26 }}>⚠️</div>
-              <h2 style={{ fontFamily:'Rajdhani', fontWeight:700, fontSize:22, color:'var(--t)', marginBottom:8 }}>Exit Interview?</h2>
+              <h2 style={{ fontFamily:'Outfit', fontWeight:700, fontSize:22, color:'var(--t)', marginBottom:8 }}>Exit Interview?</h2>
               <p style={{ color:'var(--t3)', fontSize:14, lineHeight:1.65, marginBottom:6 }}>
                 You have answered <strong style={{ color:'var(--t)' }}>{currentQ} of {questions.length}</strong> questions.
               </p>
@@ -786,15 +879,15 @@ export default function InterviewRoomPage() {
               </p>
               <div style={{ display:'flex', gap:10 }}>
                 <button onClick={() => setShowExitDialog(false)}
-                  style={{ flex:1, padding:'11px', borderRadius:9, border:'1px solid var(--border)', background:'var(--card)', color:'var(--t)', fontFamily:'Rajdhani', fontWeight:700, fontSize:13, letterSpacing:1, cursor:'pointer', transition:'all .2s' }}>
+                  style={{ flex:1, padding:'11px', borderRadius:9, border:'1px solid var(--border)', background:'var(--card)', color:'var(--t)', fontFamily:'Outfit', fontWeight:700, fontSize:13, letterSpacing:1, cursor:'pointer', transition:'all .2s' }}>
                   ← Stay
                 </button>
                 <button onClick={() => { setShowExitDialog(false); finishInterview(); }}
-                  style={{ flex:1, padding:'11px', borderRadius:9, border:'none', background:'linear-gradient(135deg,#f97316,#ea580c)', color:'#fff', fontFamily:'Rajdhani', fontWeight:700, fontSize:12, letterSpacing:1, cursor:'pointer', boxShadow:'0 0 16px rgba(249,115,22,0.3)' }}>
+                  style={{ flex:1, padding:'11px', borderRadius:9, border:'none', background:'linear-gradient(135deg,#f97316,#ea580c)', color:'#fff', fontFamily:'Outfit', fontWeight:700, fontSize:12, letterSpacing:1, cursor:'pointer', boxShadow:'0 0 16px rgba(249,115,22,0.3)' }}>
                   🎯 Get Report
                 </button>
                 <button onClick={confirmExit}
-                  style={{ flex:1, padding:'11px', borderRadius:9, border:'1px solid rgba(239,68,68,0.35)', background:'rgba(239,68,68,0.08)', color:'#ef4444', fontFamily:'Rajdhani', fontWeight:700, fontSize:13, letterSpacing:1, cursor:'pointer', transition:'all .2s' }}>
+                  style={{ flex:1, padding:'11px', borderRadius:9, border:'1px solid rgba(239,68,68,0.35)', background:'rgba(239,68,68,0.08)', color:'#ef4444', fontFamily:'Outfit', fontWeight:700, fontSize:13, letterSpacing:1, cursor:'pointer', transition:'all .2s' }}>
                   ✕ Leave
                 </button>
               </div>
@@ -818,7 +911,7 @@ export default function InterviewRoomPage() {
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#f97316" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </div>
-            <span style={{ fontFamily:'Rajdhani', fontWeight:700, color:'var(--t)', letterSpacing:2, fontSize:15 }}>
+            <span style={{ fontFamily:'Outfit', fontWeight:700, color:'var(--t)', letterSpacing:2, fontSize:15 }}>
               VISION<span style={{ color:'#f97316' }}>HIRE</span>
             </span>
           </button>
@@ -844,12 +937,12 @@ export default function InterviewRoomPage() {
             <div style={{ color:'var(--t4)', fontSize:9, fontFamily:'JetBrains Mono', letterSpacing:1 }}>Q {currentQ+1}/{questions.length}</div>
           </div>
           <button onClick={finishInterview} disabled={completing}
-            style={{ background:'linear-gradient(135deg,#f97316,#ea580c)', color:'#fff', border:'none', borderRadius:8, padding:'8px 14px', fontFamily:'Rajdhani', fontWeight:700, fontSize:12, letterSpacing:1.5, cursor:'pointer', display:'flex', alignItems:'center', gap:6, whiteSpace:'nowrap', boxShadow:'0 0 14px rgba(249,115,22,0.25)' }}>
+            style={{ background:'linear-gradient(135deg,#f97316,#ea580c)', color:'#fff', border:'none', borderRadius:8, padding:'8px 14px', fontFamily:'Outfit', fontWeight:700, fontSize:12, letterSpacing:1.5, cursor:'pointer', display:'flex', alignItems:'center', gap:6, whiteSpace:'nowrap', boxShadow:'0 0 14px rgba(249,115,22,0.25)' }}>
             {completing ? <div className="spinner" style={{ width:12, height:12, borderWidth:2 }} /> : '🎯'}
             {completing ? 'Generating...' : 'End & Report'}
           </button>
           <button onClick={handleExit}
-            style={{ background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.3)', color:'#ef4444', borderRadius:8, padding:'8px 12px', fontFamily:'Rajdhani', fontWeight:700, fontSize:12, letterSpacing:1.5, cursor:'pointer', display:'flex', alignItems:'center', gap:5, transition:'all .2s', whiteSpace:'nowrap' }}
+            style={{ background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.3)', color:'#ef4444', borderRadius:8, padding:'8px 12px', fontFamily:'Outfit', fontWeight:700, fontSize:12, letterSpacing:1.5, cursor:'pointer', display:'flex', alignItems:'center', gap:5, transition:'all .2s', whiteSpace:'nowrap' }}
             onMouseEnter={e => e.currentTarget.style.background='rgba(239,68,68,0.2)'}
             onMouseLeave={e => e.currentTarget.style.background='rgba(239,68,68,0.1)'}>
             ✕ Exit
@@ -895,7 +988,7 @@ export default function InterviewRoomPage() {
                     style={{ borderRadius:16, padding:24, background:'rgba(249,115,22,0.06)', border:'1px solid rgba(249,115,22,0.3)' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
                       <span style={{ color:'#f97316', fontFamily:'JetBrains Mono', fontSize:10, letterSpacing:3 }}>AI FEEDBACK</span>
-                      <span style={{ fontFamily:'Rajdhani', fontWeight:700, fontSize:26, color: scoreColor(feedback.score) }}>
+                      <span style={{ fontFamily:'Outfit', fontWeight:700, fontSize:26, color: scoreColor(feedback.score) }}>
                         {feedback.score}<span style={{ color:'var(--t4)', fontSize:13, fontFamily:'JetBrains Mono' }}>/100</span>
                       </span>
                     </div>
@@ -912,7 +1005,7 @@ export default function InterviewRoomPage() {
                   defaultValue={answer}
                   onChange={e => { setAnswer(e.target.value); answerRef.current = e.target.value; }}
                   placeholder="Type your answer here, or click the mic to speak..."
-                  style={{ flex:1, background:'var(--card)', border:'1px solid rgba(249,115,22,0.2)', color:'var(--t)', fontFamily:'Exo 2', fontSize:14, lineHeight:1.7, padding:20, borderRadius:12, resize:'none', outline:'none', minHeight:180 }}
+                  style={{ flex:1, background:'var(--card)', border:'1px solid rgba(249,115,22,0.2)', color:'var(--t)', fontFamily:'Inter', fontSize:14, lineHeight:1.7, padding:20, borderRadius:12, resize:'none', outline:'none', minHeight:180 }}
                   onFocus={e => e.target.style.borderColor='#f97316'}
                   onBlur={e => e.target.style.borderColor='rgba(249,115,22,0.2)'}
                 />
@@ -933,14 +1026,14 @@ export default function InterviewRoomPage() {
               {feedback ? (
                 isLast ? (
                   <motion.button initial={{ opacity:0 }} animate={{ opacity:1 }} onClick={finishInterview} disabled={completing}
-                    style={{ background:'linear-gradient(135deg,#f97316,#ea580c)', color:'#fff', border:'none', borderRadius:12, padding:'16px 32px', fontFamily:'Rajdhani', fontWeight:700, fontSize:16, letterSpacing:2, cursor:'pointer', display:'flex', alignItems:'center', gap:10, boxShadow:'0 0 30px rgba(249,115,22,0.4)' }}>
+                    style={{ background:'linear-gradient(135deg,#f97316,#ea580c)', color:'#fff', border:'none', borderRadius:12, padding:'16px 32px', fontFamily:'Outfit', fontWeight:700, fontSize:16, letterSpacing:2, cursor:'pointer', display:'flex', alignItems:'center', gap:10, boxShadow:'0 0 30px rgba(249,115,22,0.4)' }}>
                     {completing ? <div className="spinner" style={{ width:20, height:20, borderWidth:2 }} /> : '🚀'}
                     {completing ? 'Generating AI Report...' : 'View Full Results'}
                   </motion.button>
                 ) : (
                   <motion.button whileHover={{ scale:1.02 }} whileTap={{ scale:0.98 }} onClick={handleNextManual}
                     disabled={completing}
-                    style={{ background:'linear-gradient(135deg,#22c55e,#16a34a)', color:'#fff', border:'none', borderRadius:12, padding:'12px 32px', fontFamily:'Rajdhani', fontWeight:700, fontSize:14, letterSpacing:2, cursor:'pointer', display:'flex', alignItems:'center', gap:8, boxShadow:'0 0 20px rgba(34,197,94,0.3)' }}>
+                    style={{ background:'linear-gradient(135deg,#22c55e,#16a34a)', color:'#fff', border:'none', borderRadius:12, padding:'12px 32px', fontFamily:'Outfit', fontWeight:700, fontSize:14, letterSpacing:2, cursor:'pointer', display:'flex', alignItems:'center', gap:8, boxShadow:'0 0 20px rgba(34,197,94,0.3)' }}>
                     ✨ Next Question →
                   </motion.button>
                 )
@@ -948,13 +1041,13 @@ export default function InterviewRoomPage() {
                 <>
                   <motion.button whileHover={{ scale:1.02 }} whileTap={{ scale:0.98 }} onClick={handleSkip}
                     disabled={submitting}
-                    style={{ background:'transparent', color:'var(--t2)', border:'1px solid var(--border)', borderRadius:12, padding:'12px 20px', fontFamily:'Rajdhani', fontWeight:700, fontSize:14, letterSpacing:1, cursor: submitting ? 'not-allowed' : 'pointer' }}>
+                    style={{ background:'transparent', color:'var(--t2)', border:'1px solid var(--border)', borderRadius:12, padding:'12px 20px', fontFamily:'Outfit', fontWeight:700, fontSize:14, letterSpacing:1, cursor: submitting ? 'not-allowed' : 'pointer' }}>
                     {isLast ? 'Skip & Finish' : 'Skip'}
                   </motion.button>
 
                   <motion.button whileHover={{ scale:1.02 }} whileTap={{ scale:0.98 }} onClick={submitAnswer}
                     disabled={submitting || (!(answerRef.current || answer || '').trim() && !(useCodeEditor && code.trim() && code.trim() !== '// Write your code here...'))}
-                    style={{ background:'linear-gradient(135deg,#f97316,#ea580c)', color:'#fff', border:'none', borderRadius:12, padding:'12px 32px', fontFamily:'Rajdhani', fontWeight:700, fontSize:14, letterSpacing:2, 
+                    style={{ background:'linear-gradient(135deg,#f97316,#ea580c)', color:'#fff', border:'none', borderRadius:12, padding:'12px 32px', fontFamily:'Outfit', fontWeight:700, fontSize:14, letterSpacing:2, 
                              cursor: (submitting || (!(answerRef.current || answer || '').trim() && !(useCodeEditor && code.trim() && code.trim() !== '// Write your code here...'))) ? 'not-allowed' : 'pointer', 
                              opacity: (!(answerRef.current || answer || '').trim() && !(useCodeEditor && code.trim() && code.trim() !== '// Write your code here...')) ? 0.4 : 1, 
                              display:'flex', alignItems:'center', gap:8, boxShadow:'0 0 20px rgba(249,115,22,0.3)' }}>
@@ -970,7 +1063,7 @@ export default function InterviewRoomPage() {
           {useCodeEditor && (
              <div style={{ flex:1, display:'flex', flexDirection:'column', background:'var(--card)', border:'1px solid rgba(249,115,22,0.2)', borderRadius:16, overflow:'hidden', minWidth:400 }}>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 16px', background:'rgba(249,115,22,0.1)', borderBottom:'1px solid rgba(249,115,22,0.2)' }}>
-                  <span style={{ fontSize:12, fontFamily:'Rajdhani', fontWeight:700, color:'#f97316', letterSpacing:1 }}>CODE EDITOR</span>
+                  <span style={{ fontSize:12, fontFamily:'Outfit', fontWeight:700, color:'#f97316', letterSpacing:1 }}>CODE EDITOR</span>
                   <select value={codeLang} onChange={e => setCodeLang(e.target.value)} style={{ background:'var(--bg2)', color:'var(--t)', border:'1px solid rgba(249,115,22,0.3)', borderRadius:6, padding:'4px 8px', fontSize:11, fontFamily:'JetBrains Mono', outline:'none', cursor:'pointer' }}>
                     <option value="javascript">JavaScript</option>
                     <option value="python">Python</option>
@@ -999,7 +1092,7 @@ export default function InterviewRoomPage() {
                         style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.6)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:10 }}>
                         <div style={{ padding: '16px 24px', background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)', borderRadius: 12, textAlign: 'center' }}>
                           <p style={{ color:'#f97316', fontSize:20, marginBottom:8 }}>🔒</p>
-                          <p style={{ color:'var(--t)', fontFamily:'Rajdhani', fontWeight:700, fontSize:15, letterSpacing:1 }}>COMPILER LOCKED</p>
+                          <p style={{ color:'var(--t)', fontFamily:'Outfit', fontWeight:700, fontSize:15, letterSpacing:1 }}>COMPILER LOCKED</p>
                           <p style={{ color:'var(--t3)', fontFamily:'JetBrains Mono', fontSize:11, marginTop:4 }}>Only available for coding questions</p>
                         </div>
                       </motion.div>
@@ -1068,8 +1161,8 @@ export default function InterviewRoomPage() {
 
             {/* Status info */}
             <div style={{ marginTop:'auto', borderTop:'1px solid var(--border2)', paddingTop:12 }}>
-              <p style={{ color:'var(--t3)', fontSize:9, fontFamily:'JetBrains Mono', letterSpacing:2, marginBottom:8 }}>
-                {tfReady === true ? 'AI FACE DETECTION ACTIVE' : tfReady === 'fallback' ? 'BRIGHTNESS DETECTION' : 'LOADING DETECTOR...'}
+              <p style={{ color:'var(--t3)', fontSize:9, fontFamily:'JetBrains Mono', letterSpacing:1, marginBottom:8 }}>
+                {tfReady === true ? 'AI FACE DETECTION ACTIVE' : tfReady === 'fallback' ? 'BRIGHTNESS FALLBACK' : 'LOADING DETECTOR...'}
               </p>
               {['Look directly at camera', 'Sit up straight', 'Keep face in frame', 'Adequate lighting'].map(t => (
                 <p key={t} style={{ color:'var(--t3)', fontSize:11, marginBottom:4, display:'flex', alignItems:'center', gap:6 }}>
