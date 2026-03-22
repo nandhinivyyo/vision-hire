@@ -124,7 +124,28 @@ async function analyzeResume(resumeText) {
 Resume:
 ${resumeText.substring(0, 4000)}`;
   const text = await callAI(prompt);
-  return safeJSON(text, { skills:[], projects:[], technologies:[], experience:[], education:[], certifications:[], summary:'', keyStrengths:[], yearsOfExperience:'fresher' });
+  const parsed = safeJSON(text, { skills:[], projects:[], technologies:[], experience:[], education:[], certifications:[], summary:'', keyStrengths:[], yearsOfExperience:'fresher' });
+
+  const arrayToStrings = (arr) => {
+    if (!Array.isArray(arr)) return [];
+    return arr.map(item => {
+      if (typeof item === 'string') return item;
+      if (typeof item === 'object' && item !== null) {
+        if (item.name && item.description) return `${item.name}: ${item.description}`;
+        return JSON.stringify(item);
+      }
+      return String(item);
+    });
+  };
+
+  parsed.projects = arrayToStrings(parsed.projects);
+  parsed.experience = arrayToStrings(parsed.experience);
+  parsed.skills = arrayToStrings(parsed.skills);
+  parsed.technologies = arrayToStrings(parsed.technologies);
+  parsed.education = arrayToStrings(parsed.education);
+  parsed.certifications = arrayToStrings(parsed.certifications);
+
+  return parsed;
 }
 
 // ─── QUESTION GENERATION (with forced variety) ──────────────────────────────
