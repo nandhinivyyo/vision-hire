@@ -42,8 +42,6 @@ const Field = ({ label, name, type = 'text', options, value, onChange, required 
 export default function AuthPage() {
   const [params]      = useSearchParams();
   const [isRegister, setIsRegister] = useState(params.get('mode') === 'register');
-  const [isForgot, setIsForgot]     = useState(false);
-  const [successReg, setSuccessReg] = useState(false);
   const [loading, setLoading]       = useState(false);
   
   const [form, setForm] = useState({
@@ -67,18 +65,6 @@ export default function AuthPage() {
       return;
     }
 
-    if (isForgot) {
-      setLoading(true);
-      try {
-        await axios.post('/api/auth/forgotpassword', { email: form.email });
-        toast.success('If an account exists, a reset link was sent to that email.');
-        setIsForgot(false);
-      } catch (err) {
-        toast.error(err.response?.data?.message || 'Failed to send reset link.');
-      } finally { setLoading(false); }
-      return;
-    }
-
     const errors = {};
     if (form.password.length < 6) errors.password = 'Password must be at least 6 characters.';
     if (isRegister) {
@@ -95,7 +81,8 @@ export default function AuthPage() {
     try {
       if (isRegister) {
         await register(form);
-        setSuccessReg(true);
+        setIsRegister(false);
+        toast.success('Registration successful! Please sign in.');
       } else {
         const data = await login(form.email, form.password);
         toast.success(`Welcome back, ${data.name}!`);
@@ -126,25 +113,6 @@ export default function AuthPage() {
     background:  active ? 'var(--od)' : 'transparent',
   });
 
-  if (successReg) {
-    return (
-      <div style={{ minHeight:'100vh', background:'var(--bg)', display:'flex', alignItems:'center', justifyContent:'center', padding:'64px 16px' }}>
-         <motion.div style={{...cardStyle, width:'100%', maxWidth:440, alignItems:'center', textAlign:'center'}} initial={{ opacity:0, scale:0.95 }} animate={{ opacity:1, scale:1 }}>
-           <div style={{ width:80, height:80, borderRadius:'50%', background:'var(--od)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:16 }}>
-             <span style={{ fontSize:40 }}>✉️</span>
-           </div>
-           <h2 style={{ fontFamily:'Outfit', fontWeight:700, fontSize:28, color:'var(--t)', marginBottom:8 }}>Verify your Email</h2>
-           <p style={{ color:'var(--t3)', fontSize:15, lineHeight:1.5, marginBottom:24 }}>
-             We've sent a verification link to <strong style={{ color:'var(--t)' }}>{form.email}</strong>.<br/>
-             Please check your inbox to activate your account.
-           </p>
-           <button onClick={() => { setSuccessReg(false); setIsRegister(false); }} style={{ width:'100%', background:'var(--card)', border:'1px solid var(--border)', color:'var(--t)', padding:14, borderRadius:8, cursor:'pointer', fontFamily:'Outfit', fontWeight:700, textTransform:'uppercase', letterSpacing:1 }}>
-             Back to Login
-           </button>
-         </motion.div>
-      </div>
-    );
-  }
 
   return (
     <div style={{ minHeight:'100vh', background:'var(--bg)', backgroundImage:'linear-gradient(var(--grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line) 1px,transparent 1px)', backgroundSize:'40px 40px', display:'flex', alignItems:'center', justifyContent:'center', padding:'64px 16px', transition:'background .3s' }}>
@@ -163,23 +131,21 @@ export default function AuthPage() {
 
         <div style={{ textAlign:'center', marginBottom:20 }}>
           <h1 style={{ fontFamily:'Outfit', fontWeight:700, fontSize:28, color:'var(--t)', marginBottom:4 }}>
-            {isForgot ? 'Reset Password' : isRegister ? 'Student Registration' : 'Welcome Back'}
+            {isRegister ? 'Student Registration' : 'Welcome Back'}
           </h1>
           <p style={{ color:'var(--t3)', fontSize:14 }}>
-            {isForgot ? 'Enter your email to receive a reset link' : isRegister ? 'Join the AI interview revolution' : 'Sign in to continue your journey'}
+            {isRegister ? 'Join the AI interview revolution' : 'Sign in to continue your journey'}
           </p>
         </div>
 
-        {!isForgot && (
-          <div style={{ display:'flex', background:'var(--card)', border:'1px solid var(--border)', borderRadius:10, padding:4, marginBottom:18, transition:'background .3s' }}>
-            <button type="button" style={toggleBtnStyle(!isRegister)} onClick={() => setIsRegister(false)}>Login</button>
-            <button type="button" style={toggleBtnStyle(isRegister)}  onClick={() => setIsRegister(true)}>Register</button>
-          </div>
-        )}
+        <div style={{ display:'flex', background:'var(--card)', border:'1px solid var(--border)', borderRadius:10, padding:4, marginBottom:18, transition:'background .3s' }}>
+          <button type="button" style={toggleBtnStyle(!isRegister)} onClick={() => setIsRegister(false)}>Login</button>
+          <button type="button" style={toggleBtnStyle(isRegister)}  onClick={() => setIsRegister(true)}>Register</button>
+        </div>
 
         <form onSubmit={handleSubmit} style={cardStyle}>
           <AnimatePresence>
-            {!isForgot && isRegister && (
+            {isRegister && (
               <motion.div key="reg-fields" initial={{ opacity:0, height:0 }} animate={{ opacity:1, height:'auto' }} exit={{ opacity:0, height:0 }} style={{ overflow:'hidden', display:'flex', flexDirection:'column', gap:14 }}>
                 <div style={grid2}>
                   <Field label="Full Name" name="name"  value={form.name}  onChange={set} />
@@ -204,19 +170,7 @@ export default function AuthPage() {
           {/* Always-visible email field */}
           <Field label="Email Address" name="email" value={form.email} onChange={set} type="email" error={formErrors.email} />
 
-          {/* Password field hidden ONLY if Forgot Password is active */}
-          {!isForgot && (
-            <div>
-              <Field label="Password" name="password" value={form.password} onChange={set} type="password" error={formErrors.password} helperText="Must be at least 6 characters long." />
-              {!isRegister && (
-                <div style={{ textAlign:'right', marginTop:6 }}>
-                  <button type="button" onClick={() => setIsForgot(true)} style={{ color:'var(--t3)', background:'none', border:'none', fontSize:12, cursor:'pointer' }}>
-                    Forgot Password?
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+          <Field label="Password" name="password" value={form.password} onChange={set} type="password" error={formErrors.password} helperText="Must be at least 6 characters long." />
 
           <motion.button type="submit" disabled={loading}
             style={{ background:'linear-gradient(135deg,var(--o),var(--o2))', color:'var(--t)', border:'none', borderRadius:8, padding:'14px', fontFamily:'Outfit', fontWeight:700, fontSize:15, letterSpacing:2, textTransform:'uppercase', cursor: loading ? 'not-allowed':'pointer', boxShadow:'0 0 24px var(--og)', transition:'all .2s', display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginTop:4, opacity: loading ? 0.7 : 1 }}
@@ -224,14 +178,12 @@ export default function AuthPage() {
             whileTap={{ scale: loading ? 1 : 0.98 }}>
             {loading
               ? <><div style={{ width:18,height:18,border:'2px solid rgba(255,255,255,0.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'spin .8s linear infinite' }} />Processing...</>
-              : (isForgot ? 'Send Reset Link' : isRegister ? 'Create Account →' : 'Sign In →')
+              : (isRegister ? 'Create Account →' : 'Sign In →')
             }
           </motion.button>
 
           <p style={{ textAlign:'center', color:'var(--t4)', fontSize:13, marginTop:4 }}>
-            {isForgot ? (
-              <button type="button" onClick={() => setIsForgot(false)} style={{ color:'var(--o)', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter', fontSize:13, textDecoration:'underline' }}>Return to Login</button>
-            ) : isRegister ? (
+            {isRegister ? (
               <>Already have an account? <button type="button" onClick={() => setIsRegister(!isRegister)} style={{ color:'var(--o)', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter', fontSize:13, textDecoration:'underline' }}>Sign In</button></>
             ) : (
               <>Don't have an account? <button type="button" onClick={() => setIsRegister(!isRegister)} style={{ color:'var(--o)', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter', fontSize:13, textDecoration:'underline' }}>Register Free</button></>

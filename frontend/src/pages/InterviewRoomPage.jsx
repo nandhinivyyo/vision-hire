@@ -1084,6 +1084,19 @@ export default function InterviewRoomPage() {
                     theme="vs-dark"
                     value={code}
                     onChange={val => setCode(val)}
+                    beforeMount={(monaco) => {
+                      monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+                        noSemanticValidation: false,
+                        noSyntaxValidation: false
+                      });
+                      monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
+                        target: monaco.languages.typescript.ScriptTarget.ES2020,
+                        allowNonTsExtensions: true,
+                        checkJs: true,
+                        strict: true,
+                        alwaysStrict: true
+                      });
+                    }}
                     options={{ minimap: { enabled: false }, fontSize: 13, fontFamily: 'JetBrains Mono', padding: { top: 16 } }}
                   />
                   <AnimatePresence>

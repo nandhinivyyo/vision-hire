@@ -29,10 +29,7 @@ const userSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
   
   // Email Auth
-  isVerified: { type: Boolean, default: false }, // Existing users have 'true' saved in DB so they are safe.
-  verifyEmailToken: String,
-  resetPasswordToken: String,
-  resetPasswordExpire: Date,
+  isVerified: { type: Boolean, default: true }, // Existing users have 'true' saved in DB so they are safe.
   
   lastLogin: { type: Date }
 }, { timestamps: true });
@@ -50,27 +47,9 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-// Generate Verification Token
-userSchema.methods.getSignedVerifyToken = function() {
-  const token = crypto.randomBytes(20).toString('hex');
-  this.verifyEmailToken = crypto.createHash('sha256').update(token).digest('hex');
-  return token;
-};
-
-// Generate Password Reset Token
-userSchema.methods.getResetPasswordToken = function() {
-  const token = crypto.randomBytes(20).toString('hex');
-  this.resetPasswordToken = crypto.createHash('sha256').update(token).digest('hex');
-  this.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
-  return token;
-};
-
 userSchema.methods.toJSON = function() {
   const obj = this.toObject();
   delete obj.password;
-  delete obj.verifyEmailToken;
-  delete obj.resetPasswordToken;
-  delete obj.resetPasswordExpire;
   return obj;
 };
 

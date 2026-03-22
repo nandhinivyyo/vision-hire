@@ -5,8 +5,6 @@ const { protect, adminOnly } = require('../middleware/auth');
 const User = require('../models/User');
 const Interview = require('../models/Interview');
 const crypto = require('crypto');
-const sendEmail = require('../utils/sendEmail');
-const { getVerificationEmailTemplate } = require('../utils/emailTemplates');
 
 // GET /api/admin/stats
 router.get('/stats', protect, adminOnly, async (req, res) => {
@@ -33,12 +31,16 @@ router.get('/stats', protect, adminOnly, async (req, res) => {
 // GET /api/admin/students
 router.get('/students', protect, adminOnly, async (req, res) => {
   try {
-    const { department, year, college, role, page = 1, limit = 20 } = req.query;
+    const { department, year, college, role, search, page = 1, limit = 20 } = req.query;
     const filter = {}; // Allow seeing all users
     if (department && department !== 'all') filter.department = department;
     if (year && year !== 'all') filter.year = year;
     if (college && college !== 'all') filter.collegeName = college;
     if (role && role !== 'all') filter.role = role;
+    if (search) {
+      const regex = new RegExp(search, 'i');
+      filter.$or = [{ name: regex }, { rollNumber: regex }, { registerNumber: regex }, { email: regex }];
+    }
 
     const students = await User.find(filter)
       .select('-password')
@@ -87,26 +89,10 @@ router.post('/students', protect, adminOnly, async (req, res) => {
     const newRole = role === 'admin' ? 'admin' : 'student';
 
     const user = await User.create({
-      name, email, rollNumber, registerNumber, collegeName, department, year, phone, password, role: newRole, isVerified: false
+      name, email, rollNumber, registerNumber, collegeName, department, year, phone, password, role: newRole, isVerified: true
     });
     
-    // Generate Verification Token
-    const verifyToken = user.getSignedVerifyToken();
-    await user.save({ validateBeforeSave: false });
-
-    // Send Verification Email
-    const clientUrl = process.env.CLIENT_URL || req.headers.origin || 'http://localhost:3000';
-    const frontendVerifyUrl = `${clientUrl}/verify/${verifyToken}`;
-    const message = `Welcome to VisionHire! An admin has created an account for you. Please confirm your account by clicking the link below: \n\n ${frontendVerifyUrl}`;
-
-    sendEmail({
-      email: user.email,
-      subject: 'VisionHire Account Verification',
-      message,
-      html: getVerificationEmailTemplate(frontendVerifyUrl, true)
-    }).catch(err => console.error("Background auth email failed on admin create:", err));
-
-    res.status(201).json({ ...user.toJSON(), message: 'User created and verification email is being sent.' });
+    res.status(201).json({ ...user.toJSON(), message: 'User created successfully.' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

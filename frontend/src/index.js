@@ -4,13 +4,27 @@ import './index.css';
 import App from './App';
 import axios from 'axios';
 
-// Suppress generic cross-origin "Script error." that crashes the dev overlay (often from extensions/CDN)
-window.addEventListener('error', e => {
-  if (e.message === 'Script error.') {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-  }
-});
+// Suppress generic cross-origin "Script error." that crashes the dev overlay (often from browser extensions)
+window.onerror = function(msg) {
+  if (msg === 'Script error.') return true;
+};
+
+// Force-hide the Webpack overlay for this specific phantom error
+if (process.env.NODE_ENV === 'development') {
+  const observer = new MutationObserver(() => {
+    const errorIframe = document.querySelector('iframe');
+    if (errorIframe && errorIframe.style.zIndex === '2147483647') {
+      try {
+        if (errorIframe.contentDocument?.body?.innerText.includes('Script error.')) {
+          errorIframe.style.display = 'none';
+        }
+      } catch (e) {
+        // Cross-origin iframe block, safely ignore
+      }
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
 
 axios.defaults.baseURL = process.env.REACT_APP_API_URL;
 axios.interceptors.request.use((config) => {

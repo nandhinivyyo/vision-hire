@@ -62,6 +62,14 @@ export default function InterviewSetupPage() {
   const [showRules, setShowRules] = useState(false);
 
   const startInterview = async () => {
+    if (useVideo || useVoice) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: useVideo, audio: useVoice });
+        stream.getTracks().forEach(t => t.stop());
+      } catch (err) {
+        return toast.error("Camera/Mic permission is required to start the interview.");
+      }
+    }
     setStarting(true);
     try {
       const res = await axios.post('/api/interview/start', { type, topic: type === 'topic' ? selectedTopic : null, difficulty, persona, language: voiceLang, mode, sessionId, useResume: true });

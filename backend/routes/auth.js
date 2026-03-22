@@ -5,8 +5,6 @@ const crypto = require('crypto');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const { protect } = require('../middleware/auth');
-const sendEmail = require('../utils/sendEmail');
-const { getVerificationEmailTemplate, getResetPasswordTemplate } = require('../utils/emailTemplates');
 
 const generateToken = (id) => jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 
@@ -47,27 +45,11 @@ router.post('/register', [
       year: isAdmin ? '' : (year || ''),
       designation: isAdmin ? (designation || '') : '',
       role: isAdmin ? 'admin' : 'student',
-      isVerified: false
+      isVerified: true
     });
 
-    // Generate Verification Token
-    const verifyToken = user.getSignedVerifyToken();
-    await user.save({ validateBeforeSave: false });
-
-    // Send Verification Email
-    const clientUrl = process.env.CLIENT_URL || req.headers.origin || 'http://localhost:3000';
-    const frontendVerifyUrl = `${clientUrl}/verify/${verifyToken}`;
-    const message = `Welcome to VisionHire! Please confirm your account by clicking the link below: \n\n ${frontendVerifyUrl}`;
-
-    sendEmail({
-      email: user.email,
-      subject: 'VisionHire Account Verification',
-      message,
-      html: getVerificationEmailTemplate(frontendVerifyUrl, false)
-    }).catch(err => console.error("Background email failed:", err));
-
     res.status(201).json({
-      message: 'Registration successful! Please check your email inbox to verify your account.'
+      message: 'Registration successful! You may now log in.'
     });
 
   } catch (err) {
@@ -75,26 +57,6 @@ router.post('/register', [
       const field = Object.keys(err.keyPattern || err.keyValue || {})[0] || 'field';
       return res.status(400).json({ message: `${field} already exists` });
     }
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// GET /api/auth/verify/:token
-router.get('/verify/:token', async (req, res) => {
-  try {
-    const verifyEmailToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
-    const user = await User.findOne({ verifyEmailToken });
-
-    if (!user) {
-      return res.status(400).json({ message: 'Invalid or expired verification token.' });
-    }
-
-    user.isVerified = true;
-    user.verifyEmailToken = undefined;
-    await user.save({ validateBeforeSave: false });
-
-    res.json({ message: 'Account verified successfully! You may now log in.' });
-  } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
@@ -114,10 +76,6 @@ router.post('/login', [
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    if (user.isVerified === false) {
-      return res.status(403).json({ message: 'Email not verified. Please check your inbox for the verification link.' });
-    }
-
     user.lastLogin = new Date();
     user.save({ validateBeforeSave: false }).catch(err => console.error("Background login save failed:", err));
 
@@ -133,60 +91,6 @@ router.post('/login', [
       avatar: user.avatar,
       token: generateToken(user._id)
     });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// POST /api/auth/forgotpassword
-router.post('/forgotpassword', async (req, res) => {
-  try {
-    const user = await User.findOne({ email: req.body.email });
-    if (!user) {
-      // 200 OK prevents user enumeration
-      return res.status(200).json({ message: 'If an account with that email exists, a reset link has been sent.' });
-    }
-
-    const resetToken = user.getResetPasswordToken();
-    await user.save({ validateBeforeSave: false });
-
-    const clientUrl = process.env.CLIENT_URL || req.headers.origin || 'http://localhost:3000';
-    const resetUrl = `${clientUrl}/resetpassword/${resetToken}`;
-    const message = `You requested a password reset. Click the link below to securely set a new password: \n\n ${resetUrl}`;
-
-    sendEmail({
-      email: user.email,
-      subject: 'VisionHire Password Reset',
-      message,
-      html: getResetPasswordTemplate(resetUrl)
-    }).catch(err => console.error("Background PR email failed:", err));
-    
-    res.status(200).json({ message: 'If an account with that email exists, a reset link has been sent.' });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// PUT /api/auth/resetpassword/:token
-router.put('/resetpassword/:token', async (req, res) => {
-  try {
-    const resetPasswordToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
-
-    const user = await User.findOne({
-      resetPasswordToken,
-      resetPasswordExpire: { $gt: Date.now() }
-    });
-
-    if (!user) {
-      return res.status(400).json({ message: 'Invalid or expired reset token.' });
-    }
-
-    user.password = req.body.password;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpire = undefined;
-    await user.save(); 
-
-    res.json({ message: 'Password reset successful. You may now log in with your new password.' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

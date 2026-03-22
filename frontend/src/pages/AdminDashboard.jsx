@@ -34,7 +34,7 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [students, setStudents] = useState([]);
   const [topPerformers, setTopPerformers] = useState([]);
-  const [filters, setFilters] = useState({ department: 'all', year: 'all' });
+  const [filters, setFilters] = useState({ department: 'all', year: 'all', search: '' });
   const [tab, setTab] = useState('overview');
   const [sessionForm, setSessionForm] = useState({
     title: '', type: 'technical', topic: '', difficulty: 'medium', targetDepartment: 'all',
@@ -128,6 +128,32 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (tab === 'create session') fetchMySessions();
   }, [tab]);
+
+  const exportToCSV = () => {
+    const isStaff = tab === 'staff';
+    const headers = [
+      isStaff ? 'Staff Name' : 'Student Name', 
+      'Email', 'Roll No', 'Reg No', 'Department', 
+      ...(isStaff ? [] : ['Year', 'Sessions', 'Avg Score', 'Best Score'])
+    ];
+    
+    const rows = students.map(s => {
+      const baseArgs = [
+        `"${s.name}"`, `"${s.email}"`, `"${s.rollNumber || ''}"`, `"${s.registerNumber || ''}"`, `"${s.department}"`
+      ];
+      if (isStaff) return baseArgs;
+      return [...baseArgs, `"${s.year}"`, s.totalInterviews, s.averageScore, s.bestScore];
+    });
+    
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `visionhire_${tab}_export_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
 
   const createSession = async (e) => {
     e.preventDefault();
@@ -288,6 +314,8 @@ export default function AdminDashboard() {
             <motion.div key="users-table" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }} transition={{ duration: 0.4 }}>
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div className="flex flex-wrap gap-4">
+                  <input type="text" placeholder="Search name/roll/reg..." value={filters.search} onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
+                    className="bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--input-text)] px-4 py-2.5 rounded-xl text-sm font-medium outline-none focus:border-[var(--o)] transition-colors shadow-sm min-w-[200px] placeholder:text-[var(--placeholder)]" />
                   {[['department', DEPARTMENTS], ['year', YEARS]].map(([key, opts]) => (
                     <select key={key} value={filters[key]} onChange={e => setFilters(f => ({ ...f, [key]: e.target.value }))}
                       className="bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--input-text)] px-4 py-2.5 rounded-xl text-sm font-medium outline-none focus:border-[var(--o)] transition-colors cursor-pointer capitalize shadow-sm">
@@ -295,17 +323,23 @@ export default function AdminDashboard() {
                     </select>
                   ))}
                 </div>
-                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => openStudentModal('create')}
-                  className="btn-primary px-6 py-2.5 font-bold font-display tracking-wide shadow-lg rounded-xl text-sm flex items-center justify-center gap-2">
-                  <span>+</span> Create {tab === 'staff' ? 'Staff' : 'Student'}
-                </motion.button>
+                <div className="flex flex-wrap gap-4">
+                  <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={exportToCSV}
+                    className="px-6 py-2.5 rounded-xl font-bold tracking-wide border border-[#10B981] text-[#10B981] hover:bg-[#10B981]/10 text-sm flex items-center justify-center gap-2 transition-colors">
+                    📥 Export CSV
+                  </motion.button>
+                  <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => openStudentModal('create')}
+                    className="btn-primary px-6 py-2.5 font-bold font-display tracking-wide shadow-lg rounded-xl text-sm flex items-center justify-center gap-2">
+                    <span>+</span> Create {tab === 'staff' ? 'Staff' : 'Student'}
+                  </motion.button>
+                </div>
               </div>
               <div className="bg-[var(--card)] backdrop-blur-xl border border-[var(--border2)] rounded-3xl overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.1)]">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left whitespace-nowrap">
                     <thead>
                       <tr className="border-b border-[var(--border2)] bg-black/5">
-                        {[`${tab === 'staff' ? 'Staff' : 'Student'} Name`, 'Roll No', 'Department', 'Year', 'Sessions', 'Avg Score', 'Best', 'Actions'].map(h => (
+                        {[`${tab === 'staff' ? 'Staff' : 'Student'} Name`, 'Roll No', 'Department', ...(tab === 'staff' ? [] : ['Year', 'Sessions', 'Avg Score', 'Best']), 'Actions'].map(h => (
                           <th key={h} className="p-5 text-[var(--t4)] font-mono text-xs font-bold tracking-wider uppercase">{h}</th>
                         ))}
                       </tr>
@@ -329,10 +363,14 @@ export default function AdminDashboard() {
                             </td>
                             <td className="p-5 text-[var(--t4)] font-mono text-xs">{s.rollNumber}</td>
                             <td className="p-5 text-[var(--t3)]">{s.department}</td>
-                            <td className="p-5 text-[var(--t3)]">{s.year}</td>
-                            <td className="p-5 text-[var(--t3)]">{s.totalInterviews}</td>
-                            <td className="p-5"><span className="font-display font-bold" style={{ color }}>{s.averageScore}%</span></td>
-                            <td className="p-5 text-[var(--t4)] font-mono">{s.bestScore}%</td>
+                            {tab !== 'staff' && (
+                              <>
+                                <td className="p-5 text-[var(--t3)]">{s.year}</td>
+                                <td className="p-5 text-[var(--t3)]">{s.totalInterviews}</td>
+                                <td className="p-5"><span className="font-display font-bold" style={{ color }}>{s.averageScore}%</span></td>
+                                <td className="p-5 text-[var(--t4)] font-mono">{s.bestScore}%</td>
+                              </>
+                            )}
                             <td className="p-5">
                               <div className="flex gap-3">
                                 <button onClick={(e) => { e.stopPropagation(); openStudentModal('edit', s); }} className="p-1.5 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-lg transition-colors" title="Edit">✏️</button>

@@ -7,8 +7,6 @@ import { ThemeProvider, useTheme } from './context/ThemeContext';
 
 import LandingPage         from './pages/LandingPage';
 import AuthPage            from './pages/AuthPage';
-import VerifyEmailPage     from './pages/VerifyEmailPage';
-import ResetPasswordPage   from './pages/ResetPasswordPage';
 import EntryPage           from './pages/EntryPage';
 import ResumeUploadPage    from './pages/ResumeUploadPage';
 import InterviewSetupPage  from './pages/InterviewSetupPage';
@@ -47,8 +45,6 @@ const AppRoutes = () => {
       <AnimatePresence mode="wait" initial={false}>
         <Routes location={location} key={location.pathname}>
           <Route path="/"             element={<PageTransition><LandingPage /></PageTransition>} />
-          <Route path="/verify/:token" element={<PageTransition><VerifyEmailPage /></PageTransition>} />
-          <Route path="/resetpassword/:token" element={<PageTransition><ResetPasswordPage /></PageTransition>} />
           <Route path="/auth"         element={user ? <Navigate to={user.role === 'admin' ? '/admin' : '/dashboard'} replace /> : <PageTransition><AuthPage /></PageTransition>} />
           <Route path="/entry"        element={<ProtectedRoute><PageTransition><Layout><EntryPage /></Layout></PageTransition></ProtectedRoute>} />
           <Route path="/resume"       element={<ProtectedRoute><PageTransition><Layout><ResumeUploadPage /></Layout></PageTransition></ProtectedRoute>} />
