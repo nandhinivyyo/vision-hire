@@ -10,7 +10,7 @@ const api = axios.create({
 
 // Attach JWT token
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('vh_token');
+  const token = localStorage.getItem('visionhire_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });

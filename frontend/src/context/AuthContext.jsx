@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 
 const AuthContext = createContext(null);
 
@@ -10,10 +10,11 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const token = localStorage.getItem('visionhire_token');
     if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      axios.get('/api/auth/me')
+      api.get('/api/auth/me')
         .then(res => setUser(res.data))
-        .catch(() => { localStorage.removeItem('visionhire_token'); delete axios.defaults.headers.common['Authorization']; })
+        .catch(() => { 
+          localStorage.removeItem('visionhire_token'); 
+        })
         .finally(() => setLoading(false));
     } else {
       setLoading(false);
@@ -21,21 +22,19 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (email, password) => {
-    const res = await axios.post('/api/auth/login', { email, password });
+    const res = await api.post('/api/auth/login', { email, password });
     localStorage.setItem('visionhire_token', res.data.token);
-    axios.defaults.headers.common['Authorization'] = `Bearer ${res.data.token}`;
     setUser(res.data);
     return res.data;
   };
 
   const register = async (data) => {
-    const res = await axios.post('/api/auth/register', data);
+    const res = await api.post('/api/auth/register', data);
     return res.data;
   };
 
   const logout = () => {
     localStorage.removeItem('visionhire_token');
-    delete axios.defaults.headers.common['Authorization'];
     setUser(null);
   };
 
