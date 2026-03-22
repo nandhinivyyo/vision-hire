@@ -66,6 +66,16 @@ router.post('/join', protect, async (req, res) => {
   }
 });
 
+// GET /api/sessions/my-sessions (admin)
+router.get('/my-sessions', protect, adminOnly, async (req, res) => {
+  try {
+    const sessions = await Session.find({ createdBy: req.user._id }).sort({ createdAt: -1 });
+    res.json(sessions);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // GET /api/sessions/active
 router.get('/active', protect, async (req, res) => {
   try {
@@ -95,16 +105,6 @@ router.patch('/:id/toggle', protect, adminOnly, async (req, res) => {
     session.isActive = !session.isActive;
     await session.save();
     res.json(session);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// GET /api/sessions/my-sessions (admin)
-router.get('/my-sessions', protect, adminOnly, async (req, res) => {
-  try {
-    const sessions = await Session.find({ createdBy: req.user._id }).sort({ createdAt: -1 });
-    res.json(sessions);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

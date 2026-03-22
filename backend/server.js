@@ -3,11 +3,13 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const morgan = require('morgan');
 const path = require('path');
+const compression = require('compression');
 require('dotenv').config();
 
 const app = express();
 
 // Middleware
+app.use(compression());
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:3000',
   credentials: true
