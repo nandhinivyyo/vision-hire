@@ -55,7 +55,8 @@ router.post('/register', [
     await user.save({ validateBeforeSave: false });
 
     // Send Verification Email
-    const frontendVerifyUrl = `${process.env.CLIENT_URL || 'http://localhost:3000'}/verify/${verifyToken}`;
+    const clientUrl = process.env.CLIENT_URL || req.headers.origin || 'http://localhost:3000';
+    const frontendVerifyUrl = `${clientUrl}/verify/${verifyToken}`;
     const message = `Welcome to VisionHire! Please confirm your account by clicking the link below: \n\n ${frontendVerifyUrl}`;
 
     sendEmail({
@@ -149,7 +150,8 @@ router.post('/forgotpassword', async (req, res) => {
     const resetToken = user.getResetPasswordToken();
     await user.save({ validateBeforeSave: false });
 
-    const resetUrl = `${process.env.CLIENT_URL || 'http://localhost:3000'}/resetpassword/${resetToken}`;
+    const clientUrl = process.env.CLIENT_URL || req.headers.origin || 'http://localhost:3000';
+    const resetUrl = `${clientUrl}/resetpassword/${resetToken}`;
     const message = `You requested a password reset. Click the link below to securely set a new password: \n\n ${resetUrl}`;
 
     sendEmail({
