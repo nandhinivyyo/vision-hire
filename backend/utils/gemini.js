@@ -467,8 +467,8 @@ async function generateInterviewReport(interviewData) {
 
   const avgScore = Math.round(answered.reduce((s, q) => s + (q.score || 0), 0) / questions.length);
 
-  const qaText = answered.slice(0, 8).map((q, i) =>
-    `Q${i+1}: ${q.question}\nCandidate: ${q.answer.substring(0, 200)}\nScore: ${q.score}/100`
+  const qaText = questions.slice(0, 10).map((q, i) =>
+    `Q${i+1}: ${q.question}\nCandidate: ${q.answer?.trim() ? q.answer.substring(0, 200) : 'Skipped / No answer'}\nScore: ${q.score || 0}/100`
   ).join('\n\n');
 
   const prompt = `You are a career counselor writing a detailed post-interview report with an ANSWER GUIDE so the candidate can improve.

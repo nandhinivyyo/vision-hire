@@ -57,11 +57,15 @@ router.post('/register', [
     const frontendVerifyUrl = `${process.env.CLIENT_URL || 'http://localhost:3000'}/verify/${verifyToken}`;
     const message = `Welcome to VisionHire! Please confirm your account by clicking the link below: \n\n ${frontendVerifyUrl}`;
 
-    sendEmail({
-      email: user.email,
-      subject: 'VisionHire Account Verification',
-      message
-    }).catch(err => console.error("Background email failed:", err));
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'VisionHire Account Verification',
+        message
+      });
+    } catch (err) {
+      console.error("Email failed:", err);
+    }
 
     res.status(201).json({
       message: 'Registration successful! Please check your email inbox to verify your account.'
@@ -150,11 +154,15 @@ router.post('/forgotpassword', async (req, res) => {
     const resetUrl = `${process.env.CLIENT_URL || 'http://localhost:3000'}/resetpassword/${resetToken}`;
     const message = `You requested a password reset. Click the link below to securely set a new password: \n\n ${resetUrl}`;
 
-    sendEmail({
-      email: user.email,
-      subject: 'VisionHire Password Reset',
-      message
-    }).catch(err => console.error("Background PR email failed:", err));
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'VisionHire Password Reset',
+        message
+      });
+    } catch (err) {
+      console.error("PR email failed:", err);
+    }
     
     res.status(200).json({ message: 'If an account with that email exists, a reset link has been sent.' });
   } catch (err) {
