@@ -1,18 +1,21 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || '/api',
+  baseURL: import.meta.env.VITE_API_URL,
   timeout: 30000,
+  headers: {
+    "Content-Type": "application/json",
+  },
 });
 
-// Attach JWT token to every request
+// Attach JWT token
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('vh_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-// Global response handler
+// Handle errors
 api.interceptors.response.use(
   (res) => res,
   (err) => {
