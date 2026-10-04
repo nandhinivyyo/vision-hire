@@ -131,10 +131,10 @@ export default function AuthPage() {
 
         <div style={{ textAlign:'center', marginBottom:20 }}>
           <h1 style={{ fontFamily:'Outfit', fontWeight:700, fontSize:28, color:'var(--t)', marginBottom:4 }}>
-            {isRegister ? 'Student Registration' : 'Welcome Back'}
+            {isRegister ? (form.role === 'admin' ? 'Staff Registration' : 'Student Registration') : 'Welcome Back'}
           </h1>
           <p style={{ color:'var(--t3)', fontSize:14 }}>
-            {isRegister ? 'Join the AI interview revolution' : 'Sign in to continue your journey'}
+            {isRegister ? (form.role === 'admin' ? 'Create a staff/admin management account' : 'Join the AI interview revolution') : 'Sign in to continue your journey'}
           </p>
         </div>
 
@@ -147,22 +147,50 @@ export default function AuthPage() {
           <AnimatePresence>
             {isRegister && (
               <motion.div key="reg-fields" initial={{ opacity:0, height:0 }} animate={{ opacity:1, height:'auto' }} exit={{ opacity:0, height:0 }} style={{ overflow:'hidden', display:'flex', flexDirection:'column', gap:14 }}>
+                
+                {/* Role Switcher for Registration */}
+                <div>
+                  <label style={{ display:'block', color:'var(--t3)', fontFamily:'JetBrains Mono', fontSize:11, letterSpacing:'.05em', textTransform:'uppercase', marginBottom:6 }}>
+                    I am registering as:
+                  </label>
+                  <div style={{ display:'flex', gap:10 }}>
+                    <div style={roleCardStyle(form.role === 'student')} onClick={() => set('role', 'student')}>
+                      <div style={{ fontWeight:700, fontSize:13, color: form.role === 'student' ? 'var(--o)' : 'var(--t)' }}>🎓 Student</div>
+                      <div style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>For candidates taking AI interviews</div>
+                    </div>
+                    <div style={roleCardStyle(form.role === 'admin')} onClick={() => set('role', 'admin')}>
+                      <div style={{ fontWeight:700, fontSize:13, color: form.role === 'admin' ? 'var(--o)' : 'var(--t)' }}>💼 Staff / Faculty</div>
+                      <div style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>For faculty, HODs & placement officers</div>
+                    </div>
+                  </div>
+                </div>
+
                 <div style={grid2}>
                   <Field label="Full Name" name="name"  value={form.name}  onChange={set} />
                   <Field label="Phone"     name="phone" value={form.phone} onChange={set} type="tel" error={formErrors.phone} />
                 </div>
 
-                <motion.div key="student-fields" initial={{ opacity:0, height:0 }} animate={{ opacity:1, height:'auto' }} exit={{ opacity:0, height:0 }} style={{ overflow:'hidden', display:'flex', flexDirection:'column', gap:14 }}>
-                  <div style={grid2}>
-                    <Field label="Roll Number"     name="rollNumber"     value={form.rollNumber}     onChange={set} />
-                    <Field label="Register Number" name="registerNumber" value={form.registerNumber} onChange={set} />
-                  </div>
-                  <div style={grid2}>
-                    <Field label="Year"       name="year"       value={form.year}       onChange={set} options={YEARS} />
-                    <Field label="Department" name="department" value={form.department} onChange={set} options={DEPARTMENTS} />
-                  </div>
-                  <Field label="College Name" name="collegeName" value={form.collegeName} onChange={set} />
-                </motion.div>
+                {form.role === 'student' ? (
+                  <motion.div key="student-fields" initial={{ opacity:0, height:0 }} animate={{ opacity:1, height:'auto' }} exit={{ opacity:0, height:0 }} style={{ overflow:'hidden', display:'flex', flexDirection:'column', gap:14 }}>
+                    <div style={grid2}>
+                      <Field label="Roll Number"     name="rollNumber"     value={form.rollNumber}     onChange={set} />
+                      <Field label="Register Number" name="registerNumber" value={form.registerNumber} onChange={set} />
+                    </div>
+                    <div style={grid2}>
+                      <Field label="Year"       name="year"       value={form.year}       onChange={set} options={YEARS} />
+                      <Field label="Department" name="department" value={form.department} onChange={set} options={DEPARTMENTS} />
+                    </div>
+                    <Field label="College Name" name="collegeName" value={form.collegeName} onChange={set} />
+                  </motion.div>
+                ) : (
+                  <motion.div key="staff-fields" initial={{ opacity:0, height:0 }} animate={{ opacity:1, height:'auto' }} exit={{ opacity:0, height:0 }} style={{ overflow:'hidden', display:'flex', flexDirection:'column', gap:14 }}>
+                    <div style={grid2}>
+                      <Field label="Designation"  name="designation" value={form.designation} onChange={set} options={DESIGNATIONS} />
+                      <Field label="Department"   name="department"  value={form.department}  onChange={set} options={DEPARTMENTS} />
+                    </div>
+                    <Field label="College Name" name="collegeName" value={form.collegeName} onChange={set} />
+                  </motion.div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>

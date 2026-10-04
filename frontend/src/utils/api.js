@@ -19,9 +19,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
-      localStorage.removeItem('vh_token');
-      localStorage.removeItem('vh_user');
+    // Only redirect on 401 if it's not a login or register request
+    const isAuthEndpoint = err.config?.url?.includes('/api/auth/login') || err.config?.url?.includes('/api/auth/register');
+    if (err.response?.status === 401 && !isAuthEndpoint) {
+      localStorage.removeItem('visionhire_token');
       window.location.href = '/auth';
     }
     return Promise.reject(err);

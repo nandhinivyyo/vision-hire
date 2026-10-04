@@ -43,8 +43,19 @@ app.use((err, req, res, next) => {
 // Connect to MongoDB
 (async () => {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log('✅ MongoDB connected');
+    const primaryUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/visionhire';
+    try {
+      await mongoose.connect(primaryUri, { serverSelectionTimeoutMS: 4000 });
+      console.log('✅ MongoDB connected');
+    } catch (primaryErr) {
+      if (primaryUri !== 'mongodb://127.0.0.1:27017/visionhire') {
+        console.warn('⚠️ Primary MongoDB connection failed. Falling back to local MongoDB (127.0.0.1:27017)...');
+        await mongoose.connect('mongodb://127.0.0.1:27017/visionhire', { serverSelectionTimeoutMS: 5000 });
+        console.log('✅ Connected to local MongoDB fallback');
+      } else {
+        throw primaryErr;
+      }
+    }
 
     // Ensure DB indexes match current schemas (drops stale unique indexes)
     const User = require('./models/User');
