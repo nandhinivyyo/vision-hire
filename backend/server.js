@@ -19,15 +19,8 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(morgan('dev'));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/users', require('./routes/users'));
-app.use('/api/interview', require('./routes/interview'));
-app.use('/api/resume', require('./routes/resume'));
-app.use('/api/results', require('./routes/results'));
-app.use('/api/sessions', require('./routes/sessions'));
-app.use('/api/admin', require('./routes/admin'));
-app.use('/api/leaderboard', require('./routes/leaderboard'));
+// Disable Mongoose command buffering when disconnected
+mongoose.set('bufferCommands', false);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -38,15 +31,25 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Middleware to verify DB connection
+// Middleware to verify DB connection before handling API routes
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/') && req.path !== '/api/health' && mongoose.connection.readyState !== 1) {
     return res.status(503).json({
-      message: 'Database connection in progress or unavailable. Please check MONGO_URI configuration.'
+      message: 'Database connection unavailable. Please check MONGO_URI in Render environment variables.'
     });
   }
   next();
 });
+
+// Routes
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/users', require('./routes/users'));
+app.use('/api/interview', require('./routes/interview'));
+app.use('/api/resume', require('./routes/resume'));
+app.use('/api/results', require('./routes/results'));
+app.use('/api/sessions', require('./routes/sessions'));
+app.use('/api/admin', require('./routes/admin'));
+app.use('/api/leaderboard', require('./routes/leaderboard'));
 
 // Error handler
 app.use((err, req, res, next) => {
